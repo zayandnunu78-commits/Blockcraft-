@@ -24,6 +24,18 @@ set(BLOCKCRAFT_LUA_LIB "${BLOCKCRAFT_LOVE_BUILD}/lua51.lib" CACHE FILEPATH
 set(BLOCKCRAFT_GAME_ROOT "${CMAKE_CURRENT_LIST_DIR}/../BLOCKCRAFT_1_xbox_controller" CACHE PATH
     "Blockcraft game source directory")
 
+if(NOT EXISTS "${BLOCKCRAFT_LIBLOVE}")
+    file(GLOB_RECURSE BLOCKCRAFT_LIBLOVE_CANDIDATES
+        "${BLOCKCRAFT_LOVE_BUILD}/*love*.lib")
+    foreach(candidate IN LISTS BLOCKCRAFT_LIBLOVE_CANDIDATES)
+        if(NOT candidate MATCHES "lovestatic\\.lib$")
+            set(BLOCKCRAFT_LIBLOVE "${candidate}" CACHE FILEPATH
+                "Built LÖVE import library" FORCE)
+            break()
+        endif()
+    endforeach()
+endif()
+
 foreach(required_path IN ITEMS BLOCKCRAFT_SDL_ROOT BLOCKCRAFT_GAME_ROOT)
     if(NOT EXISTS "${${required_path}}")
         message(FATAL_ERROR "Missing required path ${required_path}: ${${required_path}}")
