@@ -48,7 +48,7 @@ jobs:
 
       - name: Checkout pinned SDL2 Xbox UWP revision
         run: |
-          git clone --depth 1 --branch release-2.32.10-xbox-uwp https://github.com/libsdl-org/SDL.git $env:SDL_SOURCE
+          git clone --depth 1 --branch release-2.32.10 https://github.com/libsdl-org/SDL.git $env:SDL_SOURCE
           git -C $env:SDL_SOURCE apply "$env:GITHUB_WORKSPACE\\xbox-uwp\\dependencies\\xbox-wgi-controller.patch"
 
       - name: Configure SDL2 for x64 UWP
