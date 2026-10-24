@@ -100,10 +100,13 @@ jobs:
           $env:PATH = "$env:DEPOT_TOOLS;$env:PATH"
           $env:DEPOT_TOOLS_UPDATE = '0'
           $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
+          & "$env:DEPOT_TOOLS\\update_depot_tools.bat"
+          if ($LASTEXITCODE -ne 0) { throw "depot_tools initialization failed with exit code $LASTEXITCODE" }
           Push-Location $env:ANGLE_SOURCE
           try { & "$env:DEPOT_TOOLS\\gclient.bat" sync -D }
           finally { Pop-Location }
           if ($LASTEXITCODE -ne 0) { throw "gclient sync failed with exit code $LASTEXITCODE" }
+          Add-Content -Path $env:GITHUB_PATH -Value $env:DEPOT_TOOLS
 
       - name: Configure and build ANGLE for x64 UWP D3D11
         run: |
@@ -126,9 +129,9 @@ jobs:
           '@
           Push-Location $env:ANGLE_SOURCE
           try {
-            & gn gen $env:ANGLE_BUILD "--args=$gnArgs"
+            & "$env:DEPOT_TOOLS\\gn.bat" gen $env:ANGLE_BUILD "--args=$gnArgs"
             if ($LASTEXITCODE -ne 0) { throw "gn gen failed with exit code $LASTEXITCODE" }
-            & ninja -C $env:ANGLE_BUILD libEGL libGLESv2
+            & "$env:DEPOT_TOOLS\\ninja.exe" -C $env:ANGLE_BUILD libEGL libGLESv2
             if ($LASTEXITCODE -ne 0) { throw "ninja ANGLE build failed with exit code $LASTEXITCODE" }
           }
           finally { Pop-Location }
