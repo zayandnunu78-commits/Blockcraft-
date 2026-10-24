@@ -94,6 +94,7 @@ jobs:
       - name: Bootstrap vcpkg
         run: |
           New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+          if (Test-Path .\vcpkg) { Remove-Item .\vcpkg -Recurse -Force }
           git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
           .\\vcpkg\\bootstrap-vcpkg.bat -disableMetrics
           .\\vcpkg\\vcpkg.exe install `
