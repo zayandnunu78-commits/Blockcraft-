@@ -57,3 +57,5 @@ No Xbox compatibility is claimed by creating this scaffold.
 The repository includes `.github/workflows/build-xbox-uwp.yml`. From GitHub’s web interface, run **Actions → Build Blockcraft Xbox UWP → Run workflow** and provide HTTPS URLs for matching x64 UWP SDL2 and ANGLE bundles. The workflow uses a Windows runner to build the engine and host, then uploads logs and build artifacts. See `GITHUB_ACTIONS_BUILDER.md` for the required bundle layout and the iPhone steps.
 
 The workflow is a build helper, not an Xbox compatibility test. It does not replace MSIX signing, Xbox Device Portal deployment, or the minimal diagnostic-app gate.
+
+Before running it, use **Build Xbox UWP Dependencies** in the GitHub Actions tab. That no-input workflow builds the pinned SDL2 UWP and ANGLE UWP bundles and uploads them as an artifact. Publish those two ZIPs in a repository release, then use their direct asset URLs in the main workflow form.

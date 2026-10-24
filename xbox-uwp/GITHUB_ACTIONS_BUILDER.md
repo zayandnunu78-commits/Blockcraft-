@@ -2,6 +2,12 @@
 
 GitHub Actions can run this project on a GitHub-hosted Windows virtual machine. The workflow is in `.github/workflows/build-xbox-uwp.yml`. It is manual-only and does not run automatically on every push.
 
+## Build the dependency bundles first
+
+The repository also includes `.github/workflows/build-xbox-uwp-dependencies.yml`. This workflow has no URL fields. Run **Actions → Build Xbox UWP Dependencies → Run workflow**. It builds the pinned Xbox-compatible SDL2 UWP revision and ANGLE UWP for x64/D3D11, then uploads `sdl2-x64-uwp.zip` and `angle-x64-uwp.zip` as one artifact. ANGLE is a large build and may take a long time.
+
+Download that artifact from the completed workflow run. Create a repository release such as `uwp-deps-v1`, upload both ZIPs, and publish it. The release asset URLs can then be pasted into the two fields in **Build Blockcraft Xbox UWP**. Do not paste the Actions artifact page URL; the main workflow needs direct HTTPS ZIP URLs from the release assets.
+
 ## What the workflow does
 
 The workflow runs on `windows-2022`, prepares MSBuild/MSVC, downloads the SDL2 UWP and ANGLE UWP bundles supplied at dispatch time, bootstraps vcpkg, builds the LÖVE UWP engine, configures the Blockcraft host, builds the host, and uploads the build directories and inventory as an artifact. It intentionally does not sign or claim that the package is ready for Xbox.

@@ -1,0 +1,161 @@
+name: Build Xbox UWP Dependencies
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies:
+    name: Build x64 UWP dependencies
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      SDL_SOURCE: ${{ github.workspace }}\\.deps\\SDL
+      SDL_BUILD: ${{ github.workspace }}\\.deps\\SDL-build
+      SDL_INSTALL: ${{ github.workspace }}\\.deps\\SDL-install
+      ANGLE_SOURCE: ${{ github.workspace }}\\.deps\\angle
+      ANGLE_BUILD: ${{ github.workspace }}\\.deps\\angle\\out\\uwp-release
+      DEPOT_TOOLS: ${{ github.workspace }}\\.deps\\depot_tools
+      PACKAGE_ROOT: ${{ github.workspace }}\\.deps\\packages
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up MSBuild and MSVC
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Set up MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Verify Windows tools
+        run: |
+          cmake --version
+          msbuild -version
+          git --version
+          powershell -NoProfile -Command '$PSVersionTable.PSVersion'
+
+      - name: Prepare directories
+        run: New-Item -ItemType Directory -Force -Path $env:PACKAGE_ROOT, "$env:SDL_INSTALL", "$env:DEPOT_TOOLS" | Out-Null
+
+      - name: Checkout pinned SDL2 Xbox UWP revision
+        run: |
+          git clone --depth 1 --branch release-2.32.10-xbox-uwp https://github.com/libsdl-org/SDL.git $env:SDL_SOURCE
+          git -C $env:SDL_SOURCE apply "$env:GITHUB_WORKSPACE\\xbox-uwp\\dependencies\\xbox-wgi-controller.patch"
+
+      - name: Configure SDL2 for x64 UWP
+        run: |
+          cmake -S $env:SDL_SOURCE -B $env:SDL_BUILD `
+            -G 'Visual Studio 17 2022' -A x64 `
+            -DCMAKE_SYSTEM_NAME=WindowsStore `
+            -DCMAKE_SYSTEM_VERSION=10.0 `
+            -DCMAKE_INSTALL_PREFIX=$env:SDL_INSTALL `
+            -DSDL_SHARED=ON -DSDL_STATIC=OFF `
+            -DSDL_OPENGL=OFF -DSDL_OPENGLES=ON -DSDL_VULKAN=OFF `
+            -DSDL_TESTS=OFF
+
+      - name: Build and install SDL2 UWP
+        run: cmake --build $env:SDL_BUILD --config Release --target INSTALL --parallel
+
+      - name: Verify SDL2 bundle layout
+        run: |
+          foreach ($file in @(
+            "$env:SDL_INSTALL\\include\\SDL2\\SDL.h",
+            "$env:SDL_INSTALL\\lib\\SDL2.lib",
+            "$env:SDL_INSTALL\\bin\\SDL2.dll"
+          )) {
+            if (-not (Test-Path $file)) { throw "Missing SDL2 output: $file" }
+          }
+
+      - name: Checkout pinned depot_tools and ANGLE
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git $env:DEPOT_TOOLS
+          git clone https://github.com/SternXD/angle.git $env:ANGLE_SOURCE
+          git -C $env:ANGLE_SOURCE checkout 45b0b1e03400b7a10aaa9a077e196d1abcddafce
+          $gclient = @"
+solutions = [
+  {
+    "name": ".",
+    "url": "https://github.com/SternXD/angle.git",
+    "deps_file": "DEPS",
+    "managed": False,
+    "custom_deps": {},
+    "custom_vars": {},
+  },
+]
+target_os = ["winuwp"]
+"@
+          Set-Content -Path "$env:ANGLE_SOURCE\\.gclient" -Value $gclient -Encoding UTF8
+
+      - name: Synchronize ANGLE dependencies
+        run: |
+          $env:PATH = "$env:DEPOT_TOOLS;$env:PATH"
+          $env:DEPOT_TOOLS_UPDATE = '0'
+          $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
+          Push-Location $env:ANGLE_SOURCE
+          try { & "$env:DEPOT_TOOLS\\gclient.bat" sync -D }
+          finally { Pop-Location }
+          if ($LASTEXITCODE -ne 0) { throw "gclient sync failed with exit code $LASTEXITCODE" }
+
+      - name: Configure and build ANGLE for x64 UWP D3D11
+        run: |
+          $env:PATH = "$env:DEPOT_TOOLS;$env:PATH"
+          $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
+          $gnArgs = @'
+          target_os = "winuwp"
+          target_cpu = "x64"
+          is_debug = false
+          is_component_build = false
+          is_clang = false
+          use_custom_libcxx = false
+          use_custom_libcxx_for_host = false
+          angle_enable_vulkan = false
+          angle_enable_gl = false
+          angle_enable_d3d9 = false
+          angle_enable_d3d11 = true
+          angle_build_tests = false
+          treat_warnings_as_errors = false
+          '@
+          Push-Location $env:ANGLE_SOURCE
+          try {
+            & gn gen $env:ANGLE_BUILD "--args=$gnArgs"
+            if ($LASTEXITCODE -ne 0) { throw "gn gen failed with exit code $LASTEXITCODE" }
+            & ninja -C $env:ANGLE_BUILD libEGL libGLESv2
+            if ($LASTEXITCODE -ne 0) { throw "ninja ANGLE build failed with exit code $LASTEXITCODE" }
+          }
+          finally { Pop-Location }
+
+      - name: Verify and package dependency bundles
+        run: |
+          $sdlPackage = "$env:PACKAGE_ROOT\\sdl2-x64-uwp"
+          $anglePackage = "$env:PACKAGE_ROOT\\angle-x64-uwp"
+          New-Item -ItemType Directory -Force -Path "$sdlPackage\\include", "$sdlPackage\\lib", "$sdlPackage\\bin", "$anglePackage\\bin" | Out-Null
+          Copy-Item "$env:SDL_INSTALL\\include\\SDL2" "$sdlPackage\\include" -Recurse -Force
+          Copy-Item "$env:SDL_INSTALL\\lib\\SDL2.lib" "$sdlPackage\\lib" -Force
+          Copy-Item "$env:SDL_INSTALL\\bin\\SDL2.dll" "$sdlPackage\\bin" -Force
+          foreach ($file in @('libEGL.dll','libGLESv2.dll','d3dcompiler_47.dll')) {
+            $source = "$env:ANGLE_BUILD\\$file"
+            if (-not (Test-Path $source)) { throw "Missing ANGLE output: $source" }
+            Copy-Item $source "$anglePackage\\bin" -Force
+          }
+          Compress-Archive -Path "$sdlPackage\\*" -DestinationPath "$env:PACKAGE_ROOT\\sdl2-x64-uwp.zip" -Force
+          Compress-Archive -Path "$anglePackage\\*" -DestinationPath "$env:PACKAGE_ROOT\\angle-x64-uwp.zip" -Force
+          Get-FileHash "$env:PACKAGE_ROOT\\sdl2-x64-uwp.zip", "$env:PACKAGE_ROOT\\angle-x64-uwp.zip" -Algorithm SHA256 | Format-List
+
+      - name: Upload dependency bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: xbox-uwp-dependencies-${{ github.run_number }}
+          path: |
+            ${{ github.workspace }}\\.deps\\packages\\sdl2-x64-uwp.zip
+            ${{ github.workspace }}\\.deps\\packages\\angle-x64-uwp.zip
+          if-no-files-found: error
+          retention-days: 14
