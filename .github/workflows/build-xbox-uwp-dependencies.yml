@@ -133,7 +133,7 @@ jobs:
           try {
             & "$env:DEPOT_TOOLS\\gn.bat" gen $env:ANGLE_BUILD
             if ($LASTEXITCODE -ne 0) { throw "gn gen failed with exit code $LASTEXITCODE" }
-            & "$env:DEPOT_TOOLS\\ninja.exe" -C $env:ANGLE_BUILD libEGL libGLESv2
+            & "$env:DEPOT_TOOLS\\ninja.bat" -C $env:ANGLE_BUILD libEGL libGLESv2
             if ($LASTEXITCODE -ne 0) { throw "ninja ANGLE build failed with exit code $LASTEXITCODE" }
           }
           finally { Pop-Location }
