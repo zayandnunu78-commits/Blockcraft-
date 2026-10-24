@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  IgnorableNamespaces="uap">
+  <Identity Name="BlockcraftUWP"
+            Publisher="@BLOCKCRAFT_PUBLISHER@"
+            Version="@BLOCKCRAFT_PACKAGE_VERSION@" />
+  <Properties>
+    <DisplayName>Blockcraft 1</DisplayName>
+    <PublisherDisplayName>Blockcraft Development</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Universal"
+                        MinVersion="10.0.19041.0"
+                        MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="x-generate" />
+  </Resources>
+  <Applications>
+    <Application Id="App"
+                 Executable="$targetnametoken$.exe"
+                 EntryPoint="BlockcraftUWP.App">
+      <uap:VisualElements
+        DisplayName="Blockcraft 1"
+        Description="Blockcraft 1 for Xbox Developer Mode"
+        BackgroundColor="#101820"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile
+          Square71x71Logo="Assets\SmallTile.png"
+          Wide310x150Logo="Assets\WideTile.png"
+          Square310x310Logo="Assets\LargeTile.png" />
+        <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="#101820" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <Capability Name="internetClientServer" />
+    <Capability Name="privateNetworkClientServer" />
+    <Capability Name="codeGeneration" />
+    <uap:Capability Name="removableStorage" />
+  </Capabilities>
+</Package>

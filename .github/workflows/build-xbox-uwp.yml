@@ -1,0 +1,149 @@
+name: Build Blockcraft Xbox UWP
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdl2_uwp_zip_url:
+        description: 'HTTPS URL to an x64 SDL2 UWP ZIP with include/SDL2, lib/SDL2.lib, and bin/SDL2.dll at its root'
+        required: true
+        type: string
+      angle_uwp_zip_url:
+        description: 'HTTPS URL to an x64 ANGLE UWP ZIP with bin/libEGL.dll, bin/libGLESv2.dll, and bin/d3dcompiler_47.dll at its root'
+        required: true
+        type: string
+      publisher:
+        description: 'Development certificate subject; must match the certificate used later for signing'
+        required: false
+        default: 'CN=Blockcraft Development'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Windows x64 UWP build
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VCPKG_DEFAULT_TRIPLET: x64-uwp
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\\.vcpkg-cache
+      SDL2_ROOT: ${{ github.workspace }}\\.deps\\sdl2
+      ANGLE_ROOT: ${{ github.workspace }}\\.deps\\angle
+      LOVE_ROOT: ${{ github.workspace }}\\engine\\love-xbox-uwp-main
+      HOST_ROOT: ${{ github.workspace }}\\xbox-uwp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up MSBuild and MSVC
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Set up MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Verify Windows build tools
+        run: |
+          cmake --version
+          msbuild -version
+          powershell -NoProfile -Command '$PSVersionTable.PSVersion'
+          if (-not (Test-Path $env:WINDIR)) { throw 'Windows environment is unavailable.' }
+
+      - name: Add Git zip tools to PATH
+        run: echo 'C:\Program Files\Git\usr\bin' >> $env:GITHUB_PATH
+
+      - name: Cache vcpkg downloads and builds
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}\\.vcpkg-cache
+            ${{ github.workspace }}\\vcpkg\\downloads
+            ${{ github.workspace }}\\vcpkg\\buildtrees
+          key: windows-2022-x64-uwp-vcpkg-${{ hashFiles('xbox-uwp/vcpkg-ports.lock') }}
+          restore-keys: windows-2022-x64-uwp-vcpkg-
+
+      - name: Download SDL2 UWP bundle
+        env:
+          SDL2_URL: ${{ inputs.sdl2_uwp_zip_url }}
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:SDL2_ROOT | Out-Null
+          Invoke-WebRequest -Uri $env:SDL2_URL -OutFile "$env:RUNNER_TEMP\\sdl2-uwp.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\\sdl2-uwp.zip" -DestinationPath $env:SDL2_ROOT -Force
+          if (-not (Test-Path "$env:SDL2_ROOT\\include\\SDL2\\SDL.h")) { throw 'SDL2 bundle is missing include/SDL2/SDL.h at its root.' }
+          if (-not (Test-Path "$env:SDL2_ROOT\\lib\\SDL2.lib")) { throw 'SDL2 bundle is missing lib/SDL2.lib at its root.' }
+          if (-not (Test-Path "$env:SDL2_ROOT\\bin\\SDL2.dll")) { throw 'SDL2 bundle is missing bin/SDL2.dll at its root.' }
+
+      - name: Download ANGLE UWP bundle
+        env:
+          ANGLE_URL: ${{ inputs.angle_uwp_zip_url }}
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:ANGLE_ROOT | Out-Null
+          Invoke-WebRequest -Uri $env:ANGLE_URL -OutFile "$env:RUNNER_TEMP\\angle-uwp.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\\angle-uwp.zip" -DestinationPath $env:ANGLE_ROOT -Force
+          foreach ($file in @('libEGL.dll','libGLESv2.dll','d3dcompiler_47.dll')) {
+            if (-not (Test-Path "$env:ANGLE_ROOT\\bin\\$file")) { throw "ANGLE bundle is missing bin/$file at its root." }
+          }
+
+      - name: Bootstrap vcpkg
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
+          .\\vcpkg\\bootstrap-vcpkg.bat -disableMetrics
+          .\\vcpkg\\vcpkg.exe install `
+            'freetype[brotli,bzip2,png,zlib]:x64-uwp' `
+            'libogg:x64-uwp' `
+            'libtheora:x64-uwp' `
+            'libvorbis:x64-uwp' `
+            'openal-soft:x64-uwp' `
+            'zlib:x64-uwp' `
+            --clean-after-build
+
+      - name: Configure LÖVE UWP engine
+        run: |
+          cmake -S $env:LOVE_ROOT -B "$env:LOVE_ROOT\\build\\uwp-x64-angle" `
+            -G 'Visual Studio 17 2022' -A x64 `
+            -DCMAKE_SYSTEM_NAME=WindowsStore `
+            -DCMAKE_SYSTEM_VERSION=10.0 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-uwp `
+            -DLOVE_UWP_SDL_ROOT="$env:SDL2_ROOT" `
+            -DLOVE_UWP_ANGLE=ON
+
+      - name: Build LÖVE UWP engine
+        run: cmake --build "$env:LOVE_ROOT\\build\\uwp-x64-angle" --config RelWithDebInfo --parallel
+
+      - name: Configure Blockcraft UWP host
+        run: |
+          cmake -S $env:HOST_ROOT -B "$env:HOST_ROOT\\build\\relwithdebinfo" `
+            -G 'Visual Studio 17 2022' -A x64 `
+            -DCMAKE_SYSTEM_NAME=WindowsStore `
+            -DCMAKE_SYSTEM_VERSION=10.0 `
+            -DBLOCKCRAFT_SDL_ROOT="$env:SDL2_ROOT" `
+            -DBLOCKCRAFT_LOVE_BUILD="$env:LOVE_ROOT\\build\\uwp-x64-angle\\RelWithDebInfo" `
+            -DBLOCKCRAFT_PUBLISHER='${{ inputs.publisher }}'
+
+      - name: Build Blockcraft UWP host
+        run: cmake --build "$env:HOST_ROOT\\build\\relwithdebinfo" --config RelWithDebInfo --parallel
+
+      - name: Collect build outputs and logs
+        if: always()
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\\blockcraft-uwp-artifacts" | Out-Null
+          if (Test-Path "$env:LOVE_ROOT\\build") { Copy-Item "$env:LOVE_ROOT\\build" "$env:RUNNER_TEMP\\blockcraft-uwp-artifacts\\love-build" -Recurse -Force }
+          if (Test-Path "$env:HOST_ROOT\\build") { Copy-Item "$env:HOST_ROOT\\build" "$env:RUNNER_TEMP\\blockcraft-uwp-artifacts\\host-build" -Recurse -Force }
+          Get-ChildItem "$env:RUNNER_TEMP\\blockcraft-uwp-artifacts" -Recurse -File | Select-Object FullName,Length | Out-File "$env:RUNNER_TEMP\\blockcraft-uwp-artifacts\\inventory.txt"
+
+      - name: Upload Windows build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blockcraft-xbox-uwp-windows-build-${{ github.run_number }}
+          path: ${{ runner.temp }}\\blockcraft-uwp-artifacts
+          if-no-files-found: warn
+          retention-days: 14

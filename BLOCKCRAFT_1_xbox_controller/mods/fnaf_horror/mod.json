@@ -1,0 +1,8 @@
+{
+  "id": "fnaf_horror",
+  "name": "FNAF Horror Night",
+  "version": "1.0.0",
+  "description": "A FNAF-inspired security office survival mini-mode for Blockcraft 1. Includes original procedural jumpscare audio.",
+  "main": "main.lua",
+  "import_assets": false
+}

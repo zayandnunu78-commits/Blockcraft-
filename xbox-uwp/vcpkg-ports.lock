@@ -1,0 +1,6 @@
+freetype[brotli,bzip2,png,zlib]:x64-uwp
+libogg:x64-uwp
+libtheora:x64-uwp
+libvorbis:x64-uwp
+openal-soft:x64-uwp
+zlib:x64-uwp

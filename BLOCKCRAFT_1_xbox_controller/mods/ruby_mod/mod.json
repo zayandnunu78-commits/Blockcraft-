@@ -1,0 +1,8 @@
+{
+  "id": "ruby_mod",
+  "name": "Ruby Mod",
+  "version": "1.0.0",
+  "description": "Example Lua mod: adds ruby + lamp blocks, a ruby tower, hotkeys and a HUD line.",
+  "main": "main.lua",
+  "import_assets": false
+}
