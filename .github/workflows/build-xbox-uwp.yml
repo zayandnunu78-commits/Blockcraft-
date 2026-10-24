@@ -93,6 +93,7 @@ jobs:
 
       - name: Bootstrap vcpkg
         run: |
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
           git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
           .\\vcpkg\\bootstrap-vcpkg.bat -disableMetrics
           .\\vcpkg\\vcpkg.exe install `
