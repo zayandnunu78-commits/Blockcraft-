@@ -98,10 +98,11 @@ jobs:
       - name: Synchronize ANGLE dependencies
         run: |
           $env:PATH = "$env:DEPOT_TOOLS;$env:PATH"
-          $env:DEPOT_TOOLS_UPDATE = '0'
           $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
+          Remove-Item Env:DEPOT_TOOLS_UPDATE -ErrorAction SilentlyContinue
           & "$env:DEPOT_TOOLS\\update_depot_tools.bat"
           if ($LASTEXITCODE -ne 0) { throw "depot_tools initialization failed with exit code $LASTEXITCODE" }
+          $env:DEPOT_TOOLS_UPDATE = '0'
           Push-Location $env:ANGLE_SOURCE
           try { & "$env:DEPOT_TOOLS\\gclient.bat" sync -D }
           finally { Pop-Location }
