@@ -2,10 +2,14 @@
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-  IgnorableNamespaces="uap">
+  xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
+  IgnorableNamespaces="uap mp">
   <Identity Name="BlockcraftUWP"
             Publisher="@BLOCKCRAFT_PUBLISHER@"
             Version="@BLOCKCRAFT_PACKAGE_VERSION@" />
+  <mp:PhoneIdentity
+    PhoneProductId="3D88A6B0-5B5E-4F48-9E1E-8D6A5A1D0F01"
+    PhonePublisherId="00000000000000000000000000000000" />
   <Properties>
     <DisplayName>Blockcraft 1</DisplayName>
     <PublisherDisplayName>Blockcraft Development</PublisherDisplayName>
