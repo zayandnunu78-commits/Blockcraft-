@@ -11,7 +11,7 @@ set(BLOCKCRAFT_SDL_ROOT "" CACHE PATH
     "Path to the SDL2 x64 UWP installation")
 set(BLOCKCRAFT_LOVE_BUILD "${BLOCKCRAFT_ENGINE_ROOT}/build/uwp-x64-angle/RelWithDebInfo" CACHE PATH
     "Directory containing the built LÖVE UWP libraries")
-set(BLOCKCRAFT_LOVE_RUNTIME "${BLOCKCRAFT_LOVE_BUILD}/love.dll" CACHE FILEPATH
+set(BLOCKCRAFT_LOVE_RUNTIME "${BLOCKCRAFT_LOVE_BUILD}/liblove.dll" CACHE FILEPATH
     "Built LÖVE shared runtime")
 set(BLOCKCRAFT_LUA_RUNTIME "${BLOCKCRAFT_LOVE_BUILD}/lua51.dll" CACHE FILEPATH
     "Built LuaJIT runtime")
