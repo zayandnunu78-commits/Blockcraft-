@@ -81,18 +81,18 @@ jobs:
           git clone https://github.com/SternXD/angle.git $env:ANGLE_SOURCE
           git -C $env:ANGLE_SOURCE checkout 45b0b1e03400b7a10aaa9a077e196d1abcddafce
           $gclient = @"
-solutions = [
-  {
-    "name": ".",
-    "url": "https://github.com/SternXD/angle.git",
-    "deps_file": "DEPS",
-    "managed": False,
-    "custom_deps": {},
-    "custom_vars": {},
-  },
-]
-target_os = ["winuwp"]
-"@
+          solutions = [
+            {
+              "name": ".",
+              "url": "https://github.com/SternXD/angle.git",
+              "deps_file": "DEPS",
+              "managed": False,
+              "custom_deps": {},
+              "custom_vars": {},
+            },
+          ]
+          target_os = ["winuwp"]
+          "@
           Set-Content -Path "$env:ANGLE_SOURCE\\.gclient" -Value $gclient -Encoding UTF8
 
       - name: Synchronize ANGLE dependencies
