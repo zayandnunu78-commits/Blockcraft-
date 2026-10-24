@@ -1,5 +1,8 @@
 #include <SDL.h>
 #include <winrt/Windows.ApplicationModel.h>
+#include <winrt/Windows.Storage.h>
+
+#include <windows.h>
 
 #include <string>
 
