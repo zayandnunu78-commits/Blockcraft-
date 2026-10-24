@@ -24,6 +24,7 @@ jobs:
   build:
     name: Windows x64 UWP build
     runs-on: windows-2022
+    timeout-minutes: 30
     defaults:
       run:
         shell: pwsh
@@ -136,6 +137,7 @@ jobs:
       - name: Sign MSIX and verify publisher
         shell: pwsh
         run: |
+          Write-Host 'SIGNING: locating MSIX'
           $appPackages = Join-Path $env:HOST_ROOT 'build\\relwithdebinfo\\AppPackages'
           $package = Get-ChildItem -Path $appPackages -Filter '*.msix' -Recurse | Select-Object -First 1
           if (-not $package) { throw "No MSIX package found below $appPackages" }
@@ -153,6 +155,7 @@ jobs:
           $plainPassword = [guid]::NewGuid().ToString('N')
           $pfxPassword = ConvertTo-SecureString $plainPassword -AsPlainText -Force
 
+          Write-Host "SIGNING: creating certificate for $publisher"
           $cert = New-SelfSignedCertificate `
             -Type Custom `
             -Subject $publisher `
@@ -167,6 +170,7 @@ jobs:
             -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3')
 
           if ($cert.Subject -ne $publisher) { throw "Certificate subject '$($cert.Subject)' does not match package publisher '$publisher'." }
+          Write-Host 'SIGNING: exporting public certificate and temporary PFX'
           Export-Certificate -Cert $cert -FilePath $cerPath -Type CERT | Out-Null
           Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $pfxPassword | Out-Null
           Import-Certificate -FilePath $cerPath -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
@@ -176,10 +180,20 @@ jobs:
             Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $signtool) { throw 'Windows SDK signtool.exe was not found.' }
 
-          & $signtool.FullName sign /fd SHA256 /f $pfxPath /p $plainPassword $package.FullName
-          if ($LASTEXITCODE -ne 0) { throw "signtool sign failed with exit code $LASTEXITCODE" }
-          & $signtool.FullName verify /pa /all $package.FullName
-          if ($LASTEXITCODE -ne 0) { throw "signtool verify failed with exit code $LASTEXITCODE" }
+          function Invoke-SignToolTimed([string[]]$arguments, [string]$operation) {
+            $process = Start-Process -FilePath $signtool.FullName -ArgumentList $arguments -NoNewWindow -PassThru
+            if (-not $process.WaitForExit(120000)) {
+              $process.Kill()
+              throw "signtool $operation timed out after 120 seconds"
+            }
+            if ($process.ExitCode -ne 0) { throw "signtool $operation failed with exit code $($process.ExitCode)" }
+          }
+
+          Write-Host 'SIGNING: signing package'
+          Invoke-SignToolTimed @('sign', '/fd', 'SHA256', '/f', $pfxPath, '/p', $plainPassword, $package.FullName) 'sign'
+          Write-Host 'SIGNING: verifying package signature'
+          Invoke-SignToolTimed @('verify', '/pa', '/all', $package.FullName) 'verify'
+          Write-Host 'SIGNING: signature verification passed'
 
           $signedPackage = Join-Path $signDir $package.Name
           Copy-Item $package.FullName $signedPackage -Force
