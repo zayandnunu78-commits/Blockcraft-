@@ -9,7 +9,7 @@
             Version="@BLOCKCRAFT_PACKAGE_VERSION@" />
   <mp:PhoneIdentity
     PhoneProductId="3D88A6B0-5B5E-4F48-9E1E-8D6A5A1D0F01"
-    PhonePublisherId="00000000000000000000000000000000" />
+    PhonePublisherId="3D88A6B0-5B5E-4F48-9E1E-8D6A5A1D0F02" />
   <Properties>
     <DisplayName>Blockcraft 1</DisplayName>
     <PublisherDisplayName>Blockcraft Development</PublisherDisplayName>
