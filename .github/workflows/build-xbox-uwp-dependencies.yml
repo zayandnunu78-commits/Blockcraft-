@@ -113,24 +113,10 @@ jobs:
         run: |
           $env:PATH = "$env:DEPOT_TOOLS;$env:PATH"
           $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
-          $gnArgs = @'
-          target_os = "winuwp"
-          target_cpu = "x64"
-          is_debug = false
-          is_component_build = false
-          is_clang = false
-          use_custom_libcxx = false
-          use_custom_libcxx_for_host = false
-          angle_enable_vulkan = false
-          angle_enable_gl = false
-          angle_enable_d3d9 = false
-          angle_enable_d3d11 = true
-          angle_build_tests = false
-          treat_warnings_as_errors = false
-          '@
+          $gnArgs = 'target_os="winuwp" target_cpu="x64" is_debug=false is_component_build=false is_clang=false use_custom_libcxx=false use_custom_libcxx_for_host=false angle_enable_vulkan=false angle_enable_gl=false angle_enable_d3d9=false angle_enable_d3d11=true angle_build_tests=false treat_warnings_as_errors=false'
           Push-Location $env:ANGLE_SOURCE
           try {
-            & "$env:DEPOT_TOOLS\\gn.bat" gen $env:ANGLE_BUILD "--args=$gnArgs"
+            & "$env:DEPOT_TOOLS\\gn.exe" gen $env:ANGLE_BUILD "--args=$gnArgs"
             if ($LASTEXITCODE -ne 0) { throw "gn gen failed with exit code $LASTEXITCODE" }
             & "$env:DEPOT_TOOLS\\ninja.exe" -C $env:ANGLE_BUILD libEGL libGLESv2
             if ($LASTEXITCODE -ne 0) { throw "ninja ANGLE build failed with exit code $LASTEXITCODE" }
