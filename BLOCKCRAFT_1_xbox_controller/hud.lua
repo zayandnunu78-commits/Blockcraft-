@@ -3,6 +3,7 @@ local hotbar = require "hotbar"
 local hearts = require "hearts"
 local events = require "modsys.events"
 local modapi = require "modsys.api"
+local backrooms = require "backrooms"
 local H = {}
 
 function H.draw(I)
@@ -33,6 +34,9 @@ function H.draw(I)
   love.graphics.rectangle("fill", m.x, m.y, m.w, m.h, 8, 8)
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.printf(I.mode:upper(), m.x, m.y + 13, m.w, "center")
+
+  -- The supplied logo is drawn unchanged inside a compact circular touch target.
+  backrooms.drawButton(L.w, L.h)
 
   local j = L.jump
   love.graphics.setColor(1, 1, 1, 0.25)

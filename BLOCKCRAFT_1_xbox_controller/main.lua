@@ -42,6 +42,7 @@ local json = require "json"
 local blocks = require "blocks"
 local textures = require "textures"
 local registeredBlocks = require "registeredblocks" -- central table of custom blocks
+local backrooms = require "backrooms"
 local AuthInterface = require "account.auth_interface"
 local AccountScreen = require "account.account_screen"
 local FirebaseRest = require "account.firebase_rest"
@@ -51,6 +52,24 @@ local orbit = 0
 local toastFont -- created on first use
 local account
 local firebaseAuth
+
+local function enterBackrooms()
+  if backrooms.isActive() then return end
+  if session.active() then
+    install.toast, install.toastTime, install.statusOk =
+      "Backrooms teleport is available in offline worlds only.", 4, false
+    return
+  end
+  save.saveNow(false)
+  backrooms.enter()
+  chunks.reset(backrooms.seed)
+  chunks.generateAround(3.5, 3.5, 2)
+  player.setPosition(3.5, 3.5, 1)
+  input.yaw, input.pitch, input.touches = 0, -0.2, {}
+  chunks.flush(player.x, player.y, player.z)
+  install.toast, install.toastTime, install.statusOk =
+    "You entered Backrooms Level 0. Find your way out...", 5, true
+end
 
 -- ============================================================
 -- BEDROCK BLOCKS (loose .json files, .mcpack / .mcaddon, unzipped packs)
@@ -188,6 +207,7 @@ function love.load()
   love.graphics.setBackgroundColor(.5, .75, 1)
   settings.load()          -- read saved FOV / sensitivity / music
   music.init(settings.music) -- background music (music/ folder)
+  backrooms.init()          -- optional procedural Level 0 and provided logo
   safety.load()            -- multiplayer safe mode (starts ON), preset name, last server
   -- load mods BEFORE the world exists so their blocks/textures are ready.
   -- (pcall: a broken mod system must never stop the game from starting)
@@ -203,6 +223,7 @@ function love.load()
   player.spawn()
   hotbar.load()
   input.init()
+  input.onTeleport = enterBackrooms
   chunks.flush(player.x, player.y, player.z)
   events.fire("ready")     -- game is fully set up (hotbar, player, world exist)
   -- a short message on screen (the same one the mod installer uses)

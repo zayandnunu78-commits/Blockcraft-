@@ -15,6 +15,7 @@ local world = require "world"
 local terrain = require "terrain"
 local mesher = require "mesher"
 local events = require "modsys.events"
+local backrooms = require "backrooms"
 
 local CS, CZ = world.CS, world.CZ
 local floor = math.floor
@@ -35,12 +36,17 @@ function M.reset(seed)
   terrain.clearCache()
   M.seed = seed
   M.queue, M.qi, M.lastCx, M.lastCy = {}, 1, nil, nil
-  world.surface = function(x, y) return terrain.height(M.seed, x, y) end
+  if backrooms.isActive() then
+    world.surface = backrooms.height
+  else
+    world.surface = function(x, y) return terrain.height(M.seed, x, y) end
+  end
 end
 
 -- make one chunk: terrain, then mods get a chance to decorate it, then it goes live
 local function make(cx, cy, cz)
-  local blocks, fill = terrain.generateChunk(M.seed, cx, cy, cz)
+  local generator = backrooms.isActive() and backrooms or terrain
+  local blocks, fill = generator.generateChunk(M.seed, cx, cy, cz)
   local rec = {cx = cx, cy = cy, cz = cz, key = world.key(cx, cy, cz), blocks = blocks, fill = fill}
   local hooks = events.handlers.chunk_generate
   if hooks and #hooks > 0 then

@@ -9,6 +9,7 @@ local settings = require "settings"
 local events = require "modsys.events"
 local blocks = require "blocks"
 local XboxController = require "xbox_controller"
+local backrooms = require "backrooms"
 
 local I = {yaw = 0, pitch = -0.2, mode = "break", touches = {},
            controller = XboxController.new(), jumpPressed = false,
@@ -28,6 +29,7 @@ function I.layout()
   L.pause = {x = w - 62, y = 14, w = 48, h = 48}
   L.jump = {x = w - 80, y = h - 140, r = 48}
   L.mode = {x = w - 138, y = h - 260, w = 116, h = 46}
+  L.teleport = backrooms.buttonLayout(w, h)
   return L
 end
 
@@ -97,6 +99,11 @@ end
 
 function I.pressed(id, x, y)
   local L = I.layout()
+  if backrooms.buttonHit(x, y, L.w, L.h) and I.onTeleport then
+    I.touches = {}
+    I.onTeleport()
+    return
+  end
   local p = L.pause
   if x >= p.x and x <= p.x + p.w and y >= p.y and y <= p.y + p.h then
     I.touches = {}

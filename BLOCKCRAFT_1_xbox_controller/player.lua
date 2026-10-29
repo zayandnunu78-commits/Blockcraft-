@@ -27,6 +27,13 @@ function P.spawn()
   P.fallFrom = nil
 end
 
+function P.setPosition(x, y, z)
+  P.x, P.y, P.z = x, y, z
+  P.vz = 0
+  P.ground = false
+  P.fallFrom = nil
+end
+
 function P.overlaps(x, y, z)
   return P.x + R > x and P.x - R < x + 1 and P.y + R > y and P.y - R < y + 1
      and P.z + H > z and P.z < z + 1
