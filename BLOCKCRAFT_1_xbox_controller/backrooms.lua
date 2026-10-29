@@ -74,6 +74,7 @@ end
 
 function B.height(_, _) return B.FLOOR_Z end
 function B.isActive() return B.active end
+function B.exit() B.active = false end
 function B.enter(seed)
   setupMaterials()
   B.active = true

@@ -34,6 +34,8 @@ local L = {
   attempted = {},  -- file / folder names in mods/ that were already tried (so a reload skips them)
   mountN = 0,      -- counter for unique mount points
   started = false, -- false until the first loadAll() (game start)
+  activeId = nil,  -- currently selected gameplay mode; nil means legacy all-mod mode
+  onSwitch = nil,  -- host callback: (oldId, newId)
 }
 
 local fs -- adapter, set by L.init
@@ -65,6 +67,43 @@ end
 function L.init(adapter)
   fs = adapter or loveFs()
   api.fs = fs
+  api.activate = function(id) return L.activate(id) end
+end
+
+local function cleanupMod(mod)
+  if not mod then return end
+  for i = #(mod.cleanup or {}), 1, -1 do
+    local ok, err = pcall(mod.cleanup[i])
+    if not ok then print(("[modloader] unload %s failed: %s"):format(mod.id, tostring(err))) end
+  end
+  for _, src in ipairs(mod.audioSources or {}) do pcall(src.stop, src) end
+  mod.audioSources = {}
+end
+
+local function loadedMod(id)
+  for _, mod in ipairs(L.mods) do
+    if mod.id == id then return mod end
+  end
+end
+
+function L.activate(id)
+  if type(id) ~= "string" or id == "" then return false end
+  if L.activeId == id then return true end
+  local old = L.activeId
+  local oldMod = old and loadedMod(old) or nil
+  cleanupMod(oldMod)
+  if old then events.setOwnerEnabled(old, false) end
+  L.activeId = id
+  for _, mod in ipairs(L.mods) do
+    events.setOwnerEnabled(mod.id, mod.id == id)
+  end
+  if L.byId[id] then
+    local newMod = loadedMod(id)
+    events.setOwnerEnabled(id, true)
+    if newMod then newMod.active = true end
+  end
+  if L.onSwitch then pcall(L.onSwitch, old, id) end
+  return true
 end
 
 local function sanitize(s)

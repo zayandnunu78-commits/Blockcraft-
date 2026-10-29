@@ -1,7 +1,7 @@
 -- Event bus. Mods subscribe with api.events.on(name, fn).
 --   * A handler that returns false CANCELS the event (for cancellable events).
 --   * A handler that errors is logged and skipped; it can never crash the game.
-local E = {handlers = {}, log = print}
+local E = {handlers = {}, log = print, enabled = {}}
 
 function E.on(name, fn, owner)
   assert(type(name) == "string", "event name must be a string")
@@ -18,11 +18,13 @@ function E.fire(name, ...)
   local ok = true
   for i = 1, #list do
     local h = list[i]
-    local success, res = pcall(h.fn, ...)
-    if not success then
-      E.log(("[mod %s] error in '%s' handler: %s"):format(h.owner, name, tostring(res)))
-    elseif res == false then
-      ok = false
+    if E.enabled[h.owner] ~= false then
+      local success, res = pcall(h.fn, ...)
+      if not success then
+        E.log(("[mod %s] error in '%s' handler: %s"):format(h.owner, name, tostring(res)))
+      elseif res == false then
+        ok = false
+      end
     end
   end
   return ok
@@ -35,13 +37,17 @@ function E.fireFor(owner, name, ...)
   if not list then return end
   for i = 1, #list do
     local h = list[i]
-    if h.owner == owner then
+    if h.owner == owner and E.enabled[h.owner] ~= false then
       local success, res = pcall(h.fn, ...)
       if not success then
         E.log(("[mod %s] error in '%s' handler: %s"):format(h.owner, name, tostring(res)))
       end
     end
   end
+end
+
+function E.setOwnerEnabled(owner, enabled)
+  E.enabled[owner] = enabled and true or false
 end
 
 -- drop every handler registered by one mod
@@ -51,6 +57,7 @@ function E.removeOwner(owner)
       if list[i].owner == owner then table.remove(list, i) end
     end
   end
+  E.enabled[owner] = nil
 end
 
 return E

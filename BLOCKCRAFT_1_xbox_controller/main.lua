@@ -52,6 +52,33 @@ local orbit = 0
 local toastFont -- created on first use
 local account
 local firebaseAuth
+local normalSnapshot
+
+local function cloneEdits(source)
+  local out = {}
+  for key, edits in pairs(source or {}) do
+    out[key] = {}
+    for index, id in pairs(edits) do out[key][index] = id end
+  end
+  return out
+end
+
+local function captureNormalWorld()
+  if normalSnapshot or backrooms.isActive() then return end
+  normalSnapshot = {seed = chunks.seed, edits = cloneEdits(world.edits),
+                    x = player.x, y = player.y, z = player.z}
+end
+
+local function restoreNormalWorld()
+  if not normalSnapshot then return end
+  backrooms.exit()
+  chunks.reset(normalSnapshot.seed)
+  for key, edits in pairs(normalSnapshot.edits) do world.edits[key] = edits end
+  chunks.generateAround(normalSnapshot.x, normalSnapshot.y, 2)
+  player.setPosition(normalSnapshot.x, normalSnapshot.y, normalSnapshot.z)
+  input.yaw, input.pitch, input.touches = 0, -0.2, {}
+  chunks.flush(player.x, player.y, player.z)
+end
 
 local function enterBackrooms()
   if backrooms.isActive() then return end
@@ -60,7 +87,8 @@ local function enterBackrooms()
       "Backrooms teleport is available in offline worlds only.", 4, false
     return
   end
-  save.saveNow(false)
+  if modloader.activeId == "fnaf_horror" then restoreNormalWorld() else captureNormalWorld() end
+  modloader.activate("backrooms")
   backrooms.enter()
   chunks.reset(backrooms.seed)
   chunks.generateAround(3.5, 3.5, 2)
@@ -361,6 +389,10 @@ function love.keypressed(key)
   elseif state == "multiplayer" or state == "worlds" then
     mpmenu.keypressed(key)
   elseif state == "playing" then
+    if key == "f" and not session.active() then
+      if backrooms.isActive() then restoreNormalWorld() else captureNormalWorld() end
+      modloader.activate("fnaf_horror")
+    end
     -- Let mods handle their own keyboard controls first (FNAF mode uses F/M/G/H/R).
     -- A mod can return false to consume the key and prevent normal gameplay input.
     if not events.fire("key", key) then return end

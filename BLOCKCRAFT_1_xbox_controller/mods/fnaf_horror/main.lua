@@ -81,6 +81,13 @@ local function closeMode()
   end
 end
 
+-- The host lifecycle calls this before another mod or built-in level activates.
+-- Persistent night-slot data remains in api.storage; only transient runtime state
+-- and audio are closed here.
+if api.lifecycle and api.lifecycle.onUnload then
+  api.lifecycle.onUnload(closeMode)
+end
+
 local function enemyOnCamera(enemy, cam)
   if enemy.name == "RUSTY" then
     return (enemy.stage == 1 and cam == 1) or (enemy.stage >= 2 and cam == 3)

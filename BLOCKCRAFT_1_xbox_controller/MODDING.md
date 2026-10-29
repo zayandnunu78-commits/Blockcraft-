@@ -37,8 +37,24 @@ api.hotbar.set(slot, "my_mod:ruby_block")
 api.events.on("block_break", function(e) ... return false end)   -- false = cancel
 api.log("hello")
 ```
-Events: `load`, `ready`, `world_generate`, `update(dt)`, `key(k)`,
-`block_break(e)`, `block_place(e)` (set `e.block` to swap the block), `draw_hud(gfx)`.
+Events: `load`, `ready`, `world_generate`, `chunk_generate(c)`, `update(dt)`, `key(k)`,
+`block_break(e)`, `block_place(e)` (set `e.block` to swap it), `draw_hud(gfx)`.
+
+## Switching and cleanup
+
+Modes are lifecycle-managed. The host disables event handlers for the old mode,
+calls its unload callbacks, stops mod-owned audio, and only then enables the new
+mode. A mod should register transient cleanup with:
+
+```lua
+api.lifecycle.onUnload(function()
+  -- stop entities, clear temporary map edits, close UI, etc.
+end)
+```
+
+`api.storage` is persistent and namespaced by mod ID, so saved configuration is
+not deleted when a mode is switched. Runtime state, audio, and event handlers
+must be recreated or reset on the next activation.
 
 In game: `[` and `]` cycle the selected hotbar slot through every registered block.
 

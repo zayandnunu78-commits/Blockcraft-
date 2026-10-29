@@ -136,6 +136,19 @@ function A.new(mod)
     mod.logs[#mod.logs + 1] = line
   end
 
+  -- Runtime lifecycle: cleanup hooks release transient mode state when another
+  -- mod or built-in mode becomes active. Storage remains namespaced and persists.
+  api.lifecycle = {}
+  mod.cleanup = mod.cleanup or {}
+  function api.lifecycle.onUnload(fn)
+    if type(fn) ~= "function" then error("lifecycle.onUnload expects a function", 2) end
+    mod.cleanup[#mod.cleanup + 1] = fn
+  end
+  function api.mod.activate()
+    if A.activate then return A.activate(mod.id) end
+    return false
+  end
+
   -- ---- small persistent per-mod storage (device-local; not cloud sync) ----
   -- Keys are restricted to safe characters and are namespaced by mod ID.
   api.storage = {}
