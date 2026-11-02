@@ -1,21 +1,8 @@
 name: Sign Uploaded Blockcraft MSIX
 
 on:
-  workflow_dispatch:
-    inputs:
-      package_url:
-        description: 'Temporary HTTPS URL for the exact MSIX to sign'
-        required: true
-        type: string
-      expected_sha256:
-        description: 'SHA-256 of the unsigned MSIX'
-        required: true
-        type: string
-      publisher:
-        description: 'Publisher from AppxManifest.xml'
-        required: false
-        default: 'CN=Blockcraft Development'
-        type: string
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -30,8 +17,8 @@ jobs:
     steps:
       - name: Download exact MSIX
         env:
-          PACKAGE_URL: ${{ inputs.package_url }}
-          EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+          PACKAGE_URL: https://files.manuscdn.com/user_upload_by_module/session_file/310519664014307006/VkNcVCaknXyyrtny.msix
+          EXPECTED_SHA256: 60e668f74ed56d8394ad6baad1b286b3bb4916b35627b10a6011c0111b9b2ccd
         run: |
           $work = Join-Path $env:RUNNER_TEMP 'blockcraft-sign'
           New-Item -ItemType Directory -Force -Path $work | Out-Null
@@ -58,7 +45,7 @@ jobs:
           } finally { $zip.Dispose() }
           $identity = $manifest.Package.Identity
           if ([string]::IsNullOrWhiteSpace([string]$identity.Publisher)) { throw 'Publisher is empty.' }
-          if ([string]$identity.Publisher -ne '${{ inputs.publisher }}') { throw "Publisher '$($identity.Publisher)' does not match expected '${{ inputs.publisher }}'." }
+          if ([string]$identity.Publisher -ne 'CN=Blockcraft Development') { throw "Publisher '$($identity.Publisher)' does not match expected 'CN=Blockcraft Development'." }
           Write-Host "Publisher: $($identity.Publisher)"
           Write-Host "Architecture: $($identity.ProcessorArchitecture)"
           Write-Host "Version: $($identity.Version)"
@@ -73,7 +60,7 @@ jobs:
           $pemPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.cert.pem'
           $cfgPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.cnf'
           $plainPassword = [guid]::NewGuid().ToString('N')
-          $subject = '${{ inputs.publisher }}'
+          $subject = 'CN=Blockcraft Development'
           $openssl = (Get-Command openssl.exe -ErrorAction Stop).Source
           @"
 [ req ]
