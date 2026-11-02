@@ -16,12 +16,23 @@ on:
         required: false
         default: 'CN=Blockcraft Development'
         type: string
+      uploaded_msix_url:
+        description: 'Optional temporary HTTPS URL for an exact MSIX to sign instead of rebuilding'
+        required: false
+        default: ''
+        type: string
+      uploaded_msix_sha256:
+        description: 'SHA-256 of uploaded_msix_url; required when signing an exact MSIX'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   build:
+    if: ${{ inputs.uploaded_msix_url == '' }}
     name: Windows x64 UWP build
     runs-on: windows-2022
     timeout-minutes: 30
@@ -248,3 +259,87 @@ jobs:
           path: ${{ runner.temp }}\\blockcraft-signed
           if-no-files-found: error
           retention-days: 14
+
+  sign-uploaded:
+    name: Sign exact uploaded MSIX
+    if: ${{ inputs.uploaded_msix_url != '' }}
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Download and hash-verify exact MSIX
+        env:
+          PACKAGE_URL: ${{ inputs.uploaded_msix_url }}
+          EXPECTED_SHA256: ${{ inputs.uploaded_msix_sha256 }}
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'blockcraft-sign'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $package = Join-Path $work 'BlockcraftUWP_0.1.0.0_x64_RelWithDebInfo.msix'
+          Invoke-WebRequest -Uri $env:PACKAGE_URL -OutFile $package
+          $hash = (Get-FileHash $package -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne $env:EXPECTED_SHA256.ToLowerInvariant()) { throw "MSIX hash mismatch: $hash" }
+          "PACKAGE_PATH=$package" | Out-File $env:GITHUB_ENV -Append
+      - name: Verify manifest identity
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [IO.Compression.ZipFile]::OpenRead($env:PACKAGE_PATH)
+          try {
+            $entry = $zip.GetEntry('AppxManifest.xml')
+            $reader = New-Object IO.StreamReader($entry.Open())
+            try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+          } finally { $zip.Dispose() }
+          $identity = $manifest.Package.Identity
+          if ([string]$identity.Publisher -ne '${{ inputs.publisher }}') { throw "Publisher mismatch: $($identity.Publisher)" }
+          Write-Host "Publisher: $($identity.Publisher); Architecture: $($identity.ProcessorArchitecture)"
+      - name: Generate certificate, sign, and verify
+        run: |
+          $signDir = Join-Path $env:RUNNER_TEMP 'blockcraft-signed'
+          New-Item -ItemType Directory -Force -Path $signDir | Out-Null
+          $cerPath = Join-Path $signDir 'Blockcraft-Development.cer'
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.pfx'
+          $keyPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.key.pem'
+          $pemPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.cert.pem'
+          $cfgPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.cnf'
+          $password = [guid]::NewGuid().ToString('N')
+          @"
+[ req ]
+distinguished_name = subject
+x509_extensions = extensions
+prompt = no
+[ subject ]
+CN = Blockcraft Development
+[ extensions ]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature
+extendedKeyUsage = critical,codeSigning
+subjectKeyIdentifier = hash
+"@ | Set-Content -Encoding ascii $cfgPath
+          $openssl = (Get-Command openssl.exe -ErrorAction Stop).Source
+          & $openssl req -x509 -newkey rsa:2048 -sha256 -days 1825 -nodes -keyout $keyPath -out $pemPath -config $cfgPath -set_serial ("0x" + ([guid]::NewGuid().ToString('N'))) 2>&1
+          if ($LASTEXITCODE -ne 0) { throw 'OpenSSL certificate generation failed.' }
+          & $openssl pkcs12 -export -legacy -out $pfxPath -inkey $keyPath -in $pemPath -passout ("pass:" + $password) -name 'Blockcraft Development' 2>&1
+          if ($LASTEXITCODE -ne 0) { throw 'OpenSSL PFX export failed.' }
+          & $openssl x509 -in $pemPath -outform DER -out $cerPath 2>&1
+          if ($LASTEXITCODE -ne 0) { throw 'OpenSSL CER export failed.' }
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($cerPath)
+          if ($cert.Subject -ne '${{ inputs.publisher }}') { throw "Certificate subject mismatch: $($cert.Subject)" }
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter 'signtool.exe' -Recurse | Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw 'signtool.exe was not found.' }
+          $p = Start-Process $signtool.FullName -ArgumentList @('sign','/fd','SHA256','/f',$pfxPath,'/p',$password,$env:PACKAGE_PATH) -NoNewWindow -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw 'signtool sign timed out.' }
+          if ($p.ExitCode -ne 0) { throw "signtool sign failed: $($p.ExitCode)" }
+          $p = Start-Process $signtool.FullName -ArgumentList @('verify','/pa','/all',$env:PACKAGE_PATH) -NoNewWindow -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw 'signtool verify timed out.' }
+          if ($p.ExitCode -ne 0) { throw "signtool verify failed: $($p.ExitCode)" }
+          Copy-Item $env:PACKAGE_PATH (Join-Path $signDir (Split-Path $env:PACKAGE_PATH -Leaf)) -Force
+          [ordered]@{ package = (Split-Path $env:PACKAGE_PATH -Leaf); publisher = '${{ inputs.publisher }}'; certificate_subject = $cert.Subject; certificate_thumbprint = $cert.Thumbprint; signature_verified = $true; signed_sha256 = (Get-FileHash $env:PACKAGE_PATH -Algorithm SHA256).Hash } | ConvertTo-Json | Set-Content (Join-Path $signDir 'SIGNATURE-VERIFIED.json')
+          Remove-Item $pfxPath,$keyPath,$pemPath,$cfgPath -Force -ErrorAction SilentlyContinue
+      - name: Upload verified signed package and certificate
+        uses: actions/upload-artifact@v4
+        with:
+          name: blockcraft-xbox-signed-uploaded-msix
+          path: ${{ runner.temp }}\blockcraft-signed
+          if-no-files-found: error
+          retention-days: 3
