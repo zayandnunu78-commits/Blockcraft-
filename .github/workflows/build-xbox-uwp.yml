@@ -221,13 +221,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'OpenSSL CER export failed.' }
           $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($cerPath)
           if ($cert.Subject -ne $publisher) { throw "Certificate subject '$($cert.Subject)' does not match package publisher '$publisher'." }
-          Write-Host 'SIGNING: adding certificate to the current-user root store'
-          $rootStore = [System.Security.Cryptography.X509Certificates.X509Store]::new(
-            [System.Security.Cryptography.X509Certificates.StoreName]::Root,
-            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
-          $rootStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-          try { $rootStore.Add($cert) } finally { $rootStore.Close() }
-          Write-Host 'SIGNING: certificate added to current-user root store'
+          Write-Host 'SIGNING: adding certificate to LocalMachine TrustedPeople'
+          $trustStore = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+            [System.Security.Cryptography.X509Certificates.StoreName]::TrustedPeople,
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
+          $trustStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+          try { $trustStore.Add($cert) } finally { $trustStore.Close() }
+          Write-Host 'SIGNING: certificate added to LocalMachine TrustedPeople'
 
           $sdkBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
           $signtool = Get-ChildItem -Path $sdkBin -Directory |
@@ -268,14 +268,14 @@ jobs:
           $verification | ConvertTo-Json | Set-Content (Join-Path $signDir 'SIGNATURE-VERIFIED.json')
 
           Remove-Item $pfxPath,$keyPath,$pemPath,$cfgPath -Force -ErrorAction SilentlyContinue
-          $rootStore = [System.Security.Cryptography.X509Certificates.X509Store]::new(
-            [System.Security.Cryptography.X509Certificates.StoreName]::Root,
-            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+          $trustStore = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+            [System.Security.Cryptography.X509Certificates.StoreName]::TrustedPeople,
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
           try {
-            $rootStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-            $rootStore.Remove($cert)
+            $trustStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            $trustStore.Remove($cert)
           } catch { Write-Warning "Could not remove temporary trust certificate: $($_.Exception.Message)" }
-          finally { $rootStore.Close() }
+          finally { $trustStore.Close() }
 
       - name: Collect build outputs and logs
         if: always()
@@ -308,7 +308,7 @@ jobs:
     name: Sign exact uploaded MSIX
     if: ${{ inputs.uploaded_msix_url != '' || inputs.unsigned_artifact_run_id != '' }}
     runs-on: windows-2022
-    timeout-minutes: 15
+    timeout-minutes: 5
     defaults:
       run:
         shell: pwsh
@@ -375,6 +375,8 @@ jobs:
           if ([string]$identity.Publisher -ne '${{ inputs.publisher }}') { throw "Publisher mismatch: $($identity.Publisher)" }
           Write-Host "Publisher: $($identity.Publisher); Architecture: $($identity.ProcessorArchitecture)"
       - name: Generate certificate, sign, and verify
+        env:
+          ARTIFACT_RUN_ID: ${{ inputs.unsigned_artifact_run_id }}
         run: |
           $signDir = Join-Path $env:RUNNER_TEMP 'blockcraft-signed'
           New-Item -ItemType Directory -Force -Path $signDir | Out-Null
@@ -410,13 +412,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'OpenSSL CER export failed.' }
           $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($cerPath)
           if ($cert.Subject -ne '${{ inputs.publisher }}') { throw "Certificate subject mismatch: $($cert.Subject)" }
-          Write-Host 'SIGNING: adding certificate to the current-user root store'
-          $rootStore = [System.Security.Cryptography.X509Certificates.X509Store]::new(
-            [System.Security.Cryptography.X509Certificates.StoreName]::Root,
-            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
-          $rootStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-          try { $rootStore.Add($cert) } finally { $rootStore.Close() }
-          Write-Host 'SIGNING: certificate added to current-user root store'
+          Write-Host 'SIGNING: adding certificate to LocalMachine TrustedPeople'
+          $trustStore = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+            [System.Security.Cryptography.X509Certificates.StoreName]::TrustedPeople,
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
+          $trustStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+          try { $trustStore.Add($cert) } finally { $trustStore.Close() }
+          Write-Host 'SIGNING: certificate added to LocalMachine TrustedPeople'
           $sdkBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
           $signtool = Get-ChildItem -Path $sdkBin -Directory |
             Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
@@ -434,16 +436,21 @@ jobs:
           if (-not $p.WaitForExit(120000)) { $p.Kill(); throw 'signtool verify timed out.' }
           if ($p.ExitCode -ne 0) { throw "signtool verify failed: $($p.ExitCode)" }
           Copy-Item $env:PACKAGE_PATH (Join-Path $signDir (Split-Path $env:PACKAGE_PATH -Leaf)) -Force
+          if (-not [string]::IsNullOrWhiteSpace($env:ARTIFACT_RUN_ID)) {
+            $dependency = Get-ChildItem -Path (Join-Path $env:RUNNER_TEMP 'blockcraft-source') -Filter 'Microsoft.VCLibs.x64.14.00.appx' -Recurse | Select-Object -First 1
+            if (-not $dependency) { throw 'The source build artifact is missing Microsoft.VCLibs.x64.14.00.appx.' }
+            Copy-Item $dependency.FullName (Join-Path $signDir $dependency.Name) -Force
+          }
           [ordered]@{ package = (Split-Path $env:PACKAGE_PATH -Leaf); publisher = '${{ inputs.publisher }}'; certificate_subject = $cert.Subject; certificate_thumbprint = $cert.Thumbprint; signature_verified = $true; signed_sha256 = (Get-FileHash $env:PACKAGE_PATH -Algorithm SHA256).Hash } | ConvertTo-Json | Set-Content (Join-Path $signDir 'SIGNATURE-VERIFIED.json')
           Remove-Item $pfxPath,$keyPath,$pemPath,$cfgPath -Force -ErrorAction SilentlyContinue
-          $rootStore = [System.Security.Cryptography.X509Certificates.X509Store]::new(
-            [System.Security.Cryptography.X509Certificates.StoreName]::Root,
-            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+          $trustStore = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+            [System.Security.Cryptography.X509Certificates.StoreName]::TrustedPeople,
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
           try {
-            $rootStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-            $rootStore.Remove($cert)
+            $trustStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            $trustStore.Remove($cert)
           } catch { Write-Warning "Could not remove temporary trust certificate: $($_.Exception.Message)" }
-          finally { $rootStore.Close() }
+          finally { $trustStore.Close() }
       - name: Upload verified signed package and certificate
         uses: actions/upload-artifact@v4
         with:
