@@ -9,6 +9,16 @@ set(BLOCKCRAFT_ENGINE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../engine/love-xbox-uwp-ma
     "Path to the LÖVE Xbox UWP source tree")
 set(BLOCKCRAFT_SDL_ROOT "" CACHE PATH
     "Path to the SDL2 x64 UWP installation")
+set(BLOCKCRAFT_ANGLE_ROOT "" CACHE PATH
+    "Path to the ANGLE x64 UWP runtime bundle")
+set(BLOCKCRAFT_SDL_RUNTIME "${BLOCKCRAFT_SDL_ROOT}/bin/SDL2.dll" CACHE FILEPATH
+    "SDL2 UWP runtime DLL to package")
+set(BLOCKCRAFT_ANGLE_EGL_RUNTIME "${BLOCKCRAFT_ANGLE_ROOT}/bin/libEGL.dll" CACHE FILEPATH
+    "ANGLE EGL runtime DLL to package")
+set(BLOCKCRAFT_ANGLE_GLES_RUNTIME "${BLOCKCRAFT_ANGLE_ROOT}/bin/libGLESv2.dll" CACHE FILEPATH
+    "ANGLE GLES runtime DLL to package")
+set(BLOCKCRAFT_ANGLE_COMPILER_RUNTIME "${BLOCKCRAFT_ANGLE_ROOT}/bin/d3dcompiler_47.dll" CACHE FILEPATH
+    "ANGLE shader compiler runtime DLL to package")
 set(BLOCKCRAFT_LOVE_BUILD "${BLOCKCRAFT_ENGINE_ROOT}/build/uwp-x64-angle/RelWithDebInfo" CACHE PATH
     "Directory containing the built LÖVE UWP libraries")
 set(BLOCKCRAFT_LOVE_RUNTIME "${BLOCKCRAFT_LOVE_BUILD}/liblove.dll" CACHE FILEPATH
@@ -36,15 +46,19 @@ if(NOT EXISTS "${BLOCKCRAFT_LIBLOVE}")
     endforeach()
 endif()
 
-foreach(required_path IN ITEMS BLOCKCRAFT_SDL_ROOT BLOCKCRAFT_GAME_ROOT)
+foreach(required_path IN ITEMS BLOCKCRAFT_SDL_ROOT BLOCKCRAFT_ANGLE_ROOT BLOCKCRAFT_GAME_ROOT)
     if(NOT EXISTS "${${required_path}}")
         message(FATAL_ERROR "Missing required path ${required_path}: ${${required_path}}")
     endif()
 endforeach()
 
-foreach(required_file IN ITEMS BLOCKCRAFT_LOVE_RUNTIME BLOCKCRAFT_LUA_RUNTIME BLOCKCRAFT_LOVESTATIC BLOCKCRAFT_LIBLOVE BLOCKCRAFT_LUA_LIB)
+foreach(required_file IN ITEMS
+        BLOCKCRAFT_LOVE_RUNTIME BLOCKCRAFT_LUA_RUNTIME BLOCKCRAFT_LOVESTATIC
+        BLOCKCRAFT_LIBLOVE BLOCKCRAFT_LUA_LIB BLOCKCRAFT_SDL_RUNTIME
+        BLOCKCRAFT_ANGLE_EGL_RUNTIME BLOCKCRAFT_ANGLE_GLES_RUNTIME
+        BLOCKCRAFT_ANGLE_COMPILER_RUNTIME)
     if(NOT EXISTS "${${required_file}}")
-        message(FATAL_ERROR "Missing built LÖVE artifact ${required_file}: ${${required_file}}")
+        message(FATAL_ERROR "Missing required package file ${required_file}: ${${required_file}}")
     endif()
 endforeach()
 
@@ -92,6 +106,10 @@ set(PACKAGE_CONTENT
     "${GAME_ARCHIVE}"
     "${BLOCKCRAFT_LOVE_RUNTIME}"
     "${BLOCKCRAFT_LUA_RUNTIME}"
+    "${BLOCKCRAFT_SDL_RUNTIME}"
+    "${BLOCKCRAFT_ANGLE_EGL_RUNTIME}"
+    "${BLOCKCRAFT_ANGLE_GLES_RUNTIME}"
+    "${BLOCKCRAFT_ANGLE_COMPILER_RUNTIME}"
 )
 foreach(content IN LISTS PACKAGE_CONTENT)
     set_source_files_properties("${content}" PROPERTIES

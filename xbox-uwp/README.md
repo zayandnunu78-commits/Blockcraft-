@@ -30,7 +30,12 @@ and these SDL artifacts:
 
 - `include/SDL2/SDL.h`
 - `lib/SDL2.lib`
-- `SDL2.dll` staged into the package by the Windows packaging project.
+- `bin/SDL2.dll`, staged into the package by the Windows packaging project.
+
+The ANGLE x64 UWP bundle must also contain `bin/libEGL.dll`, `bin/libGLESv2.dll`, and
+`bin/d3dcompiler_47.dll`. CMake fails if any runtime file is missing, stages all four
+SDL2/ANGLE DLLs into the MSIX root, and the GitHub Actions build verifies that the
+finished package contains them before signing.
 
 ## Configure and build
 
@@ -40,6 +45,7 @@ From a Visual Studio Developer PowerShell, first build the engine from its sourc
 cd xbox-uwp
 cmake --preset uwp-relwithdebinfo `
   -DBLOCKCRAFT_SDL_ROOT=C:/path/to/sdl2-install `
+  -DBLOCKCRAFT_ANGLE_ROOT=C:/path/to/angle-uwp `
   -DBLOCKCRAFT_LOVE_BUILD=C:/path/to/love/build/RelWithDebInfo
 cmake --build --preset uwp-relwithdebinfo
 ```

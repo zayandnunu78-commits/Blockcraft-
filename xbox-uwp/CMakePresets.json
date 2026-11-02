@@ -10,6 +10,7 @@
         "CMAKE_SYSTEM_NAME": "WindowsStore",
         "CMAKE_SYSTEM_VERSION": "10.0",
         "BLOCKCRAFT_SDL_ROOT": "C:/path/to/sdl2-install",
+        "BLOCKCRAFT_ANGLE_ROOT": "C:/path/to/angle-uwp",
         "BLOCKCRAFT_LOVE_BUILD": "${sourceDir}/../engine/love-xbox-uwp-main/build/uwp-x64-angle/RelWithDebInfo"
       }
     },
