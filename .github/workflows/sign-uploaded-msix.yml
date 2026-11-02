@@ -1,0 +1,109 @@
+name: Sign Uploaded Blockcraft MSIX
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_url:
+        description: 'Temporary HTTPS URL for the exact MSIX to sign'
+        required: true
+        type: string
+      expected_sha256:
+        description: 'SHA-256 of the unsigned MSIX'
+        required: true
+        type: string
+      publisher:
+        description: 'Publisher from AppxManifest.xml'
+        required: false
+        default: 'CN=Blockcraft Development'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Download exact MSIX
+        env:
+          PACKAGE_URL: ${{ inputs.package_url }}
+          EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'blockcraft-sign'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $package = Join-Path $work 'BlockcraftUWP_0.1.0.0_x64_RelWithDebInfo.msix'
+          Invoke-WebRequest -Uri $env:PACKAGE_URL -OutFile $package
+          $hash = (Get-FileHash $package -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne $env:EXPECTED_SHA256.ToLowerInvariant()) {
+            throw "Downloaded MSIX SHA-256 $hash does not match expected $($env:EXPECTED_SHA256)."
+          }
+          $env:PACKAGE_PATH = $package
+          "PACKAGE_PATH=$package" | Out-File $env:GITHUB_ENV -Append
+          Write-Host "Downloaded and hash-verified $package"
+
+      - name: Read manifest identity
+        run: |
+          # The package is a ZIP; read the manifest through System.IO.Compression.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [IO.Compression.ZipFile]::OpenRead($env:PACKAGE_PATH)
+          try {
+            $entry = $zip.GetEntry('AppxManifest.xml')
+            if (-not $entry) { throw 'AppxManifest.xml is missing.' }
+            $reader = New-Object IO.StreamReader($entry.Open())
+            try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+          } finally { $zip.Dispose() }
+          $identity = $manifest.Package.Identity
+          if ([string]::IsNullOrWhiteSpace([string]$identity.Publisher)) { throw 'Publisher is empty.' }
+          if ([string]$identity.Publisher -ne '${{ inputs.publisher }}') { throw "Publisher '$($identity.Publisher)' does not match expected '${{ inputs.publisher }}'." }
+          Write-Host "Publisher: $($identity.Publisher)"
+          Write-Host "Architecture: $($identity.ProcessorArchitecture)"
+          Write-Host "Version: $($identity.Version)"
+
+      - name: Generate certificate, sign, and verify
+        run: |
+          $signDir = Join-Path $env:RUNNER_TEMP 'blockcraft-signed'
+          New-Item -ItemType Directory -Force -Path $signDir | Out-Null
+          $cerPath = Join-Path $signDir 'Blockcraft-Development.cer'
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.pfx'
+          $plainPassword = [guid]::NewGuid().ToString('N')
+          $subject = '${{ inputs.publisher }}'
+          $rsa = [System.Security.Cryptography.RSA]::Create(2048)
+          $request = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
+            $subject, $rsa, [System.Security.Cryptography.HashAlgorithmName]::SHA256,
+            [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
+          $request.CertificateExtensions.Add([System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]::new($false, $false, 0, $false))
+          $request.CertificateExtensions.Add([System.Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new([System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature, $false))
+          $oids = New-Object System.Security.Cryptography.OidCollection
+          [void]$oids.Add([System.Security.Cryptography.Oid]::new('1.3.6.1.5.5.7.3.3'))
+          $request.CertificateExtensions.Add([System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]::new($oids, $false))
+          $cert = $request.CreateSelfSigned((Get-Date).AddMinutes(-5), (Get-Date).AddYears(5))
+          if ($cert.Subject -ne $subject) { throw "Certificate subject mismatch: $($cert.Subject)" }
+          [IO.File]::WriteAllBytes($cerPath, $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
+          [IO.File]::WriteAllBytes($pfxPath, $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $plainPassword))
+          Import-Certificate -FilePath $cerPath -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter 'signtool.exe' -Recurse | Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw 'signtool.exe was not found.' }
+          $p = Start-Process $signtool.FullName -ArgumentList @('sign','/fd','SHA256','/f',$pfxPath,'/p',$plainPassword,$env:PACKAGE_PATH) -NoNewWindow -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw 'signtool sign timed out.' }
+          if ($p.ExitCode -ne 0) { throw "signtool sign failed with exit code $($p.ExitCode)." }
+          $p = Start-Process $signtool.FullName -ArgumentList @('verify','/pa','/all',$env:PACKAGE_PATH) -NoNewWindow -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw 'signtool verify timed out.' }
+          if ($p.ExitCode -ne 0) { throw "signtool verify failed with exit code $($p.ExitCode)." }
+          Copy-Item $env:PACKAGE_PATH (Join-Path $signDir (Split-Path $env:PACKAGE_PATH -Leaf)) -Force
+          [ordered]@{ package = (Split-Path $env:PACKAGE_PATH -Leaf); publisher = $subject; certificate_subject = $cert.Subject; certificate_thumbprint = $cert.Thumbprint; signature_verified = $true; signed_sha256 = (Get-FileHash $env:PACKAGE_PATH -Algorithm SHA256).Hash } | ConvertTo-Json | Set-Content (Join-Path $signDir 'SIGNATURE-VERIFIED.json')
+          Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+          Remove-Item "Cert:\CurrentUser\Root\$($cert.Thumbprint)" -Force -ErrorAction SilentlyContinue
+          Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -Force -ErrorAction SilentlyContinue
+          "SIGN_DIR=$signDir" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Upload verified signed package and certificate
+        uses: actions/upload-artifact@v4
+        with:
+          name: blockcraft-xbox-signed-uploaded-msix
+          path: ${{ runner.temp }}\blockcraft-signed
+          if-no-files-found: error
+          retention-days: 3
