@@ -69,21 +69,37 @@ jobs:
           New-Item -ItemType Directory -Force -Path $signDir | Out-Null
           $cerPath = Join-Path $signDir 'Blockcraft-Development.cer'
           $pfxPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.pfx'
+          $keyPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.key.pem'
+          $pemPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.cert.pem'
+          $cfgPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.cnf'
           $plainPassword = [guid]::NewGuid().ToString('N')
           $subject = '${{ inputs.publisher }}'
-          $rsa = [System.Security.Cryptography.RSA]::Create(2048)
-          $request = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
-            $subject, $rsa, [System.Security.Cryptography.HashAlgorithmName]::SHA256,
-            [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
-          $request.CertificateExtensions.Add([System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]::new($false, $false, 0, $false))
-          $request.CertificateExtensions.Add([System.Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new([System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature, $false))
-          $oids = New-Object System.Security.Cryptography.OidCollection
-          [void]$oids.Add([System.Security.Cryptography.Oid]::new('1.3.6.1.5.5.7.3.3'))
-          $request.CertificateExtensions.Add([System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]::new($oids, $false))
-          $cert = $request.CreateSelfSigned((Get-Date).AddMinutes(-5), (Get-Date).AddYears(5))
+          $openssl = (Get-Command openssl.exe -ErrorAction Stop).Source
+          @"
+[ req ]
+distinguished_name = subject
+x509_extensions = extensions
+prompt = no
+
+[ subject ]
+CN = Blockcraft Development
+
+[ extensions ]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature
+extendedKeyUsage = critical,codeSigning
+subjectKeyIdentifier = hash
+"@ | Set-Content -Encoding ascii $cfgPath
+          Write-Host "SIGNING: generating certificate with $openssl"
+          & $openssl req -x509 -newkey rsa:2048 -sha256 -days 1825 -nodes -keyout $keyPath -out $pemPath -config $cfgPath -set_serial ("0x" + ([guid]::NewGuid().ToString('N'))) 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "OpenSSL certificate generation failed with exit code $LASTEXITCODE." }
+          & $openssl pkcs12 -export -legacy -out $pfxPath -inkey $keyPath -in $pemPath -passout ("pass:" + $plainPassword) -name 'Blockcraft Development' 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "OpenSSL PFX export failed with exit code $LASTEXITCODE." }
+          & $openssl x509 -in $pemPath -outform DER -out $cerPath 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "OpenSSL CER export failed with exit code $LASTEXITCODE." }
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($cerPath)
           if ($cert.Subject -ne $subject) { throw "Certificate subject mismatch: $($cert.Subject)" }
-          [IO.File]::WriteAllBytes($cerPath, $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
-          [IO.File]::WriteAllBytes($pfxPath, $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $plainPassword))
+          Write-Host "SIGNING: certificate subject verified: $($cert.Subject)"
           Import-Certificate -FilePath $cerPath -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
           $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter 'signtool.exe' -Recurse | Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } | Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $signtool) { throw 'signtool.exe was not found.' }
@@ -96,6 +112,7 @@ jobs:
           Copy-Item $env:PACKAGE_PATH (Join-Path $signDir (Split-Path $env:PACKAGE_PATH -Leaf)) -Force
           [ordered]@{ package = (Split-Path $env:PACKAGE_PATH -Leaf); publisher = $subject; certificate_subject = $cert.Subject; certificate_thumbprint = $cert.Thumbprint; signature_verified = $true; signed_sha256 = (Get-FileHash $env:PACKAGE_PATH -Algorithm SHA256).Hash } | ConvertTo-Json | Set-Content (Join-Path $signDir 'SIGNATURE-VERIFIED.json')
           Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+          Remove-Item $keyPath,$pemPath,$cfgPath -Force -ErrorAction SilentlyContinue
           Remove-Item "Cert:\CurrentUser\Root\$($cert.Thumbprint)" -Force -ErrorAction SilentlyContinue
           Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -Force -ErrorAction SilentlyContinue
           "SIGN_DIR=$signDir" | Out-File $env:GITHUB_ENV -Append
