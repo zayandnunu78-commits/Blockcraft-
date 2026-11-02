@@ -1,6 +1,6 @@
 name: Sign Uploaded Blockcraft MSIX
 
-on:
+"on":
   workflow_dispatch:
     inputs:
       package_url:
