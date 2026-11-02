@@ -178,37 +178,44 @@ jobs:
           New-Item -ItemType Directory -Force -Path $signDir | Out-Null
           $cerPath = Join-Path $signDir 'Blockcraft-Development.cer'
           $pfxPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.pfx'
+          $keyPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.key.pem'
+          $pemPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.cert.pem'
+          $cfgPath = Join-Path $env:RUNNER_TEMP 'Blockcraft-Development.cnf'
           $plainPassword = [guid]::NewGuid().ToString('N')
-          $pfxPassword = ConvertTo-SecureString $plainPassword -AsPlainText -Force
-
-          Write-Host "SIGNING: creating certificate for $publisher"
-          # Avoid New-SelfSignedCertificate/Export-PfxCertificate provider hangs on some
-          # hosted Windows runners. CertificateRequest creates the same self-signed
-          # code-signing certificate entirely in-process and is bounded by this step.
-          $rsa = [System.Security.Cryptography.RSA]::Create(2048)
-          $request = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
-            $publisher,
-            $rsa,
-            [System.Security.Cryptography.HashAlgorithmName]::SHA256,
-            [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
-          $request.CertificateExtensions.Add(
-            [System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]::new($false, $false, 0, $false))
-          $request.CertificateExtensions.Add(
-            [System.Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new(
-              [System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature, $false))
-          $codeSigningOid = [System.Security.Cryptography.Oid]::new('1.3.6.1.5.5.7.3.3')
-          $oidCollection = New-Object System.Security.Cryptography.OidCollection
-          [void]$oidCollection.Add($codeSigningOid)
-          $request.CertificateExtensions.Add(
-            [System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]::new(
-              $oidCollection, $false))
-          $cert = $request.CreateSelfSigned((Get-Date).AddMinutes(-5), (Get-Date).AddYears(5))
-
+          if ($publisher -notmatch '^CN=.+$') { throw "Development signing currently requires a CN publisher; received '$publisher'." }
+          $commonName = $publisher.Substring(3)
+          $opensslConfig = @(
+            '[ req ]'
+            'distinguished_name = subject'
+            'x509_extensions = extensions'
+            'prompt = no'
+            '[ subject ]'
+            "CN = $commonName"
+            '[ extensions ]'
+            'basicConstraints = critical,CA:FALSE'
+            'keyUsage = critical,digitalSignature'
+            'extendedKeyUsage = critical,codeSigning'
+            'subjectKeyIdentifier = hash'
+          ) -join [Environment]::NewLine
+          $opensslConfig | Set-Content -Encoding ascii $cfgPath
+          $openssl = (Get-Command openssl.exe -ErrorAction Stop).Source
+          Write-Host "SIGNING: generating development certificate for $publisher"
+          & $openssl req -x509 -newkey rsa:2048 -sha256 -days 1825 -nodes -keyout $keyPath -out $pemPath -config $cfgPath -set_serial ("0x" + ([guid]::NewGuid().ToString('N'))) 2>&1
+          if ($LASTEXITCODE -ne 0) { throw 'OpenSSL certificate generation failed.' }
+          Write-Host 'SIGNING: exporting temporary PFX'
+          & $openssl pkcs12 -export -legacy -out $pfxPath -inkey $keyPath -in $pemPath -passout ("pass:" + $plainPassword) -name 'Blockcraft Development' 2>&1
+          if ($LASTEXITCODE -ne 0) { throw 'OpenSSL PFX export failed.' }
+          Write-Host 'SIGNING: converting certificate to DER'
+          & $openssl x509 -in $pemPath -outform DER -out $cerPath 2>&1
+          if ($LASTEXITCODE -ne 0) { throw 'OpenSSL CER export failed.' }
+          $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($cerPath)
           if ($cert.Subject -ne $publisher) { throw "Certificate subject '$($cert.Subject)' does not match package publisher '$publisher'." }
-          Write-Host 'SIGNING: exporting public certificate and temporary PFX'
-          [IO.File]::WriteAllBytes($cerPath, $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
-          [IO.File]::WriteAllBytes($pfxPath, $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $plainPassword))
-          Import-Certificate -FilePath $cerPath -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
+          Write-Host 'SIGNING: adding certificate to the current-user root store'
+          $certutil = Join-Path $env:WINDIR 'System32\certutil.exe'
+          $certutilArgs = "-user -addstore -f Root `"$cerPath`""
+          $trustProcess = Start-Process -FilePath $certutil -ArgumentList $certutilArgs -NoNewWindow -PassThru
+          if (-not $trustProcess.WaitForExit(30000)) { $trustProcess.Kill(); throw 'Certificate trust-store import timed out after 30 seconds.' }
+          if ($trustProcess.ExitCode -ne 0) { throw "Certificate trust-store import failed with exit code $($trustProcess.ExitCode)." }
 
           $sdkBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
           $signtool = Get-ChildItem -Path $sdkBin -Directory |
@@ -248,7 +255,7 @@ jobs:
           }
           $verification | ConvertTo-Json | Set-Content (Join-Path $signDir 'SIGNATURE-VERIFIED.json')
 
-          Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+          Remove-Item $pfxPath,$keyPath,$pemPath,$cfgPath -Force -ErrorAction SilentlyContinue
           Remove-Item "Cert:\CurrentUser\Root\$($cert.Thumbprint)" -Force -ErrorAction SilentlyContinue
           Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -Force -ErrorAction SilentlyContinue
 
