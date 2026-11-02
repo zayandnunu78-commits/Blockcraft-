@@ -203,7 +203,7 @@ jobs:
           & $openssl req -x509 -newkey rsa:2048 -sha256 -days 1825 -nodes -keyout $keyPath -out $pemPath -config $cfgPath -set_serial ("0x" + ([guid]::NewGuid().ToString('N'))) 2>&1
           if ($LASTEXITCODE -ne 0) { throw 'OpenSSL certificate generation failed.' }
           Write-Host 'SIGNING: exporting temporary PFX'
-          & $openssl pkcs12 -export -legacy -out $pfxPath -inkey $keyPath -in $pemPath -passout ("pass:" + $plainPassword) -name 'Blockcraft Development' 2>&1
+          & $openssl pkcs12 -export -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 -out $pfxPath -inkey $keyPath -in $pemPath -passout ("pass:" + $plainPassword) -name 'Blockcraft Development' 2>&1
           if ($LASTEXITCODE -ne 0) { throw 'OpenSSL PFX export failed.' }
           Write-Host 'SIGNING: converting certificate to DER'
           & $openssl x509 -in $pemPath -outform DER -out $cerPath 2>&1
@@ -344,14 +344,23 @@ jobs:
           ) -join [Environment]::NewLine
           $opensslConfig | Set-Content -Encoding ascii $cfgPath
           $openssl = (Get-Command openssl.exe -ErrorAction Stop).Source
+          Write-Host "SIGNING: generating certificate for '${{ inputs.publisher }}'"
           & $openssl req -x509 -newkey rsa:2048 -sha256 -days 1825 -nodes -keyout $keyPath -out $pemPath -config $cfgPath -set_serial ("0x" + ([guid]::NewGuid().ToString('N'))) 2>&1
           if ($LASTEXITCODE -ne 0) { throw 'OpenSSL certificate generation failed.' }
-          & $openssl pkcs12 -export -legacy -out $pfxPath -inkey $keyPath -in $pemPath -passout ("pass:" + $password) -name 'Blockcraft Development' 2>&1
+          Write-Host 'SIGNING: exporting temporary PFX'
+          & $openssl pkcs12 -export -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 -out $pfxPath -inkey $keyPath -in $pemPath -passout ("pass:" + $password) -name 'Blockcraft Development' 2>&1
           if ($LASTEXITCODE -ne 0) { throw 'OpenSSL PFX export failed.' }
+          Write-Host 'SIGNING: converting certificate to DER'
           & $openssl x509 -in $pemPath -outform DER -out $cerPath 2>&1
           if ($LASTEXITCODE -ne 0) { throw 'OpenSSL CER export failed.' }
           $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($cerPath)
           if ($cert.Subject -ne '${{ inputs.publisher }}') { throw "Certificate subject mismatch: $($cert.Subject)" }
+          Write-Host 'SIGNING: adding certificate to the current-user root store'
+          $certutil = Join-Path $env:WINDIR 'System32\certutil.exe'
+          $certutilArgs = "-user -addstore -f Root `"$cerPath`""
+          $trustProcess = Start-Process -FilePath $certutil -ArgumentList $certutilArgs -NoNewWindow -PassThru
+          if (-not $trustProcess.WaitForExit(30000)) { $trustProcess.Kill(); throw 'Certificate trust-store import timed out after 30 seconds.' }
+          if ($trustProcess.ExitCode -ne 0) { throw "Certificate trust-store import failed with exit code $($trustProcess.ExitCode)." }
           $sdkBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
           $signtool = Get-ChildItem -Path $sdkBin -Directory |
             Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
