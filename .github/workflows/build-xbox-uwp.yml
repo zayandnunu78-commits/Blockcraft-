@@ -26,13 +26,24 @@ on:
         required: false
         default: ''
         type: string
+      unsigned_artifact_run_id:
+        description: 'Optional completed Actions run ID containing an unsigned MSIX artifact to sign privately'
+        required: false
+        default: ''
+        type: string
+      unsigned_artifact_name:
+        description: 'Artifact name from unsigned_artifact_run_id; required when signing a prior build artifact'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build:
-    if: ${{ inputs.uploaded_msix_url == '' }}
+    if: ${{ inputs.uploaded_msix_url == '' && inputs.unsigned_artifact_run_id == '' }}
     name: Windows x64 UWP build
     runs-on: windows-2022
     timeout-minutes: 30
@@ -211,11 +222,12 @@ jobs:
           $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($cerPath)
           if ($cert.Subject -ne $publisher) { throw "Certificate subject '$($cert.Subject)' does not match package publisher '$publisher'." }
           Write-Host 'SIGNING: adding certificate to the current-user root store'
-          $certutil = Join-Path $env:WINDIR 'System32\certutil.exe'
-          $certutilArgs = "-user -addstore -f Root `"$cerPath`""
-          $trustProcess = Start-Process -FilePath $certutil -ArgumentList $certutilArgs -NoNewWindow -PassThru
-          if (-not $trustProcess.WaitForExit(30000)) { $trustProcess.Kill(); throw 'Certificate trust-store import timed out after 30 seconds.' }
-          if ($trustProcess.ExitCode -ne 0) { throw "Certificate trust-store import failed with exit code $($trustProcess.ExitCode)." }
+          $rootStore = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+            [System.Security.Cryptography.X509Certificates.StoreName]::Root,
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+          $rootStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+          try { $rootStore.Add($cert) } finally { $rootStore.Close() }
+          Write-Host 'SIGNING: certificate added to current-user root store'
 
           $sdkBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
           $signtool = Get-ChildItem -Path $sdkBin -Directory |
@@ -256,8 +268,14 @@ jobs:
           $verification | ConvertTo-Json | Set-Content (Join-Path $signDir 'SIGNATURE-VERIFIED.json')
 
           Remove-Item $pfxPath,$keyPath,$pemPath,$cfgPath -Force -ErrorAction SilentlyContinue
-          Remove-Item "Cert:\CurrentUser\Root\$($cert.Thumbprint)" -Force -ErrorAction SilentlyContinue
-          Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -Force -ErrorAction SilentlyContinue
+          $rootStore = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+            [System.Security.Cryptography.X509Certificates.StoreName]::Root,
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+          try {
+            $rootStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            $rootStore.Remove($cert)
+          } catch { Write-Warning "Could not remove temporary trust certificate: $($_.Exception.Message)" }
+          finally { $rootStore.Close() }
 
       - name: Collect build outputs and logs
         if: always()
@@ -288,14 +306,27 @@ jobs:
 
   sign-uploaded:
     name: Sign exact uploaded MSIX
-    if: ${{ inputs.uploaded_msix_url != '' }}
+    if: ${{ inputs.uploaded_msix_url != '' || inputs.unsigned_artifact_run_id != '' }}
     runs-on: windows-2022
     timeout-minutes: 15
     defaults:
       run:
         shell: pwsh
     steps:
+      - name: Validate signing source
+        env:
+          PACKAGE_URL: ${{ inputs.uploaded_msix_url }}
+          EXPECTED_SHA256: ${{ inputs.uploaded_msix_sha256 }}
+          ARTIFACT_RUN_ID: ${{ inputs.unsigned_artifact_run_id }}
+          ARTIFACT_NAME: ${{ inputs.unsigned_artifact_name }}
+        run: |
+          $hasUrl = -not [string]::IsNullOrWhiteSpace($env:PACKAGE_URL)
+          $hasRunId = -not [string]::IsNullOrWhiteSpace($env:ARTIFACT_RUN_ID)
+          if ($hasUrl -eq $hasRunId) { throw 'Specify exactly one source: uploaded MSIX URL or prior Actions artifact.' }
+          if ($hasUrl -and [string]::IsNullOrWhiteSpace($env:EXPECTED_SHA256)) { throw 'uploaded_msix_sha256 is required with uploaded_msix_url.' }
+          if ($hasRunId -and [string]::IsNullOrWhiteSpace($env:ARTIFACT_NAME)) { throw 'unsigned_artifact_name is required with unsigned_artifact_run_id.' }
       - name: Download and hash-verify exact MSIX
+        if: ${{ inputs.uploaded_msix_url != '' }}
         env:
           PACKAGE_URL: ${{ inputs.uploaded_msix_url }}
           EXPECTED_SHA256: ${{ inputs.uploaded_msix_sha256 }}
@@ -306,6 +337,30 @@ jobs:
           Invoke-WebRequest -Uri $env:PACKAGE_URL -OutFile $package
           $hash = (Get-FileHash $package -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($hash -ne $env:EXPECTED_SHA256.ToLowerInvariant()) { throw "MSIX hash mismatch: $hash" }
+          "PACKAGE_PATH=$package" | Out-File $env:GITHUB_ENV -Append
+      - name: Download unsigned build artifact from prior run
+        if: ${{ inputs.unsigned_artifact_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.unsigned_artifact_name }}
+          run-id: ${{ inputs.unsigned_artifact_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}\blockcraft-source
+      - name: Select MSIX from prior build artifact
+        if: ${{ inputs.unsigned_artifact_run_id != '' }}
+        env:
+          ARTIFACT_RUN_ID: ${{ inputs.unsigned_artifact_run_id }}
+          ARTIFACT_NAME: ${{ inputs.unsigned_artifact_name }}
+        run: |
+          $sourceRoot = Join-Path $env:RUNNER_TEMP 'blockcraft-source'
+          $sourcePackage = Get-ChildItem -Path $sourceRoot -Filter '*.msix' -Recurse | Select-Object -First 1
+          if (-not $sourcePackage) { throw "No MSIX found in artifact '$env:ARTIFACT_NAME' from run $env:ARTIFACT_RUN_ID." }
+          $work = Join-Path $env:RUNNER_TEMP 'blockcraft-sign'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $package = Join-Path $work $sourcePackage.Name
+          Copy-Item $sourcePackage.FullName $package -Force
+          $hash = (Get-FileHash $package -Algorithm SHA256).Hash
+          Write-Host "Selected $($sourcePackage.Name); SHA-256 $hash"
           "PACKAGE_PATH=$package" | Out-File $env:GITHUB_ENV -Append
       - name: Verify manifest identity
         run: |
@@ -356,11 +411,12 @@ jobs:
           $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($cerPath)
           if ($cert.Subject -ne '${{ inputs.publisher }}') { throw "Certificate subject mismatch: $($cert.Subject)" }
           Write-Host 'SIGNING: adding certificate to the current-user root store'
-          $certutil = Join-Path $env:WINDIR 'System32\certutil.exe'
-          $certutilArgs = "-user -addstore -f Root `"$cerPath`""
-          $trustProcess = Start-Process -FilePath $certutil -ArgumentList $certutilArgs -NoNewWindow -PassThru
-          if (-not $trustProcess.WaitForExit(30000)) { $trustProcess.Kill(); throw 'Certificate trust-store import timed out after 30 seconds.' }
-          if ($trustProcess.ExitCode -ne 0) { throw "Certificate trust-store import failed with exit code $($trustProcess.ExitCode)." }
+          $rootStore = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+            [System.Security.Cryptography.X509Certificates.StoreName]::Root,
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+          $rootStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+          try { $rootStore.Add($cert) } finally { $rootStore.Close() }
+          Write-Host 'SIGNING: certificate added to current-user root store'
           $sdkBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
           $signtool = Get-ChildItem -Path $sdkBin -Directory |
             Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
@@ -380,6 +436,14 @@ jobs:
           Copy-Item $env:PACKAGE_PATH (Join-Path $signDir (Split-Path $env:PACKAGE_PATH -Leaf)) -Force
           [ordered]@{ package = (Split-Path $env:PACKAGE_PATH -Leaf); publisher = '${{ inputs.publisher }}'; certificate_subject = $cert.Subject; certificate_thumbprint = $cert.Thumbprint; signature_verified = $true; signed_sha256 = (Get-FileHash $env:PACKAGE_PATH -Algorithm SHA256).Hash } | ConvertTo-Json | Set-Content (Join-Path $signDir 'SIGNATURE-VERIFIED.json')
           Remove-Item $pfxPath,$keyPath,$pemPath,$cfgPath -Force -ErrorAction SilentlyContinue
+          $rootStore = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+            [System.Security.Cryptography.X509Certificates.StoreName]::Root,
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+          try {
+            $rootStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            $rootStore.Remove($cert)
+          } catch { Write-Warning "Could not remove temporary trust certificate: $($_.Exception.Message)" }
+          finally { $rootStore.Close() }
       - name: Upload verified signed package and certificate
         uses: actions/upload-artifact@v4
         with:
