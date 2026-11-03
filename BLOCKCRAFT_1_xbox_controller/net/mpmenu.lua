@@ -20,6 +20,7 @@ local M = {}
 local fonts = {}
 local mode = "main"        -- "main" | "pin" | "help" | "worlds" | "create" | "join"
 local focus = nil          -- name of the text box being typed in
+local navIndex = 1
 local code, pin, pinMessage = "", "", nil
 local worldName, worlds, worldPage = "My World", {}, 1
 
@@ -71,6 +72,7 @@ end
 function M.enter()
   mode, pin, pinMessage = "main", "", nil
   worldName = "My World"
+  navIndex = 1
   setFocus(nil)
   session.clearRetry()
   session.status = nil
@@ -81,6 +83,7 @@ function M.enterWorlds()
   mode, pin, pinMessage = "worlds", "", nil
   worldName = "My World"
   worldPage = 1
+  navIndex = 1
   setFocus(nil)
   session.clearRetry()
   session.status = nil
@@ -213,6 +216,8 @@ local function layout()
   button(safety.safe and "Safe Mode: ON" or "Safe Mode: OFF", M.toggleSafe,
          x, y, bw, not busy)
   y = y + rh + gap
+  button("Cloud Worlds", M.enterWorlds, x, y, bw, not busy)
+  y = y + rh + gap
   -- A failed attempt stays on this screen; retry or leave explicitly, never go offline.
   if session.canRetry() then
     button("Retry", session.retry, x, y, half)
@@ -233,17 +238,20 @@ end
 function M.showCreate()
   mode = "create"
   worldName = "My World"
+  navIndex = 1
   setFocus("worldName")
 end
 
 function M.showJoin()
   mode = "join"
   code = ""
+  navIndex = 1
   setFocus("code")
 end
 
 function M.closeSubmenu()
   mode = "worlds"
+  navIndex = 1
   setFocus(nil)
 end
 
@@ -274,6 +282,7 @@ end
 
 function M.showHelp()
   mode, helpNote = "help", nil
+  navIndex = 1
   setFocus(nil)
 end
 
@@ -352,8 +361,12 @@ end
 -- ---------- input ----------
 function M.pressed(px, py)
   local L = layout()
-  for _, b in ipairs(L.buttons) do
-    if b.enabled and inside(b, px, py) then b.fn() return end
+  for i, b in ipairs(L.buttons) do
+    if b.enabled and inside(b, px, py) then
+      navIndex = i
+      b.fn()
+      return
+    end
   end
   for _, b in ipairs(L.boxes) do
     if inside(b, px, py) then setFocus(b.name) return end
@@ -404,6 +417,17 @@ function M.keypressed(key)
     else M.back() end
     return true
   end
+  if key == "up" or key == "down" or key == "left" or key == "right" then
+    local buttons = layout().buttons
+    if #buttons == 0 then return true end
+    local step = (key == "up" or key == "left") and -1 or 1
+    for _ = 1, #buttons do
+      navIndex = ((navIndex - 1 + step) % #buttons) + 1
+      if buttons[navIndex].enabled then break end
+    end
+    setFocus(nil)
+    return true
+  end
   if focus then
     if key == "backspace" then put(focus, get(focus):sub(1, -2)) return true end
     if key == "return" or key == "kpenter" then
@@ -413,6 +437,16 @@ function M.keypressed(key)
       else if focus == "custom" then safety.save() end setFocus(nil) end
       return true
     end
+  end
+  if key == "return" or key == "kpenter" or key == "space" then
+    local buttons = layout().buttons
+    navIndex = math.max(1, math.min(navIndex, #buttons))
+    local button = buttons[navIndex]
+    if button and button.enabled then
+      setFocus(nil)
+      button.fn()
+    end
+    return true
   end
   return false
 end
@@ -489,8 +523,9 @@ function M.draw()
   end
 
   local mx, my = love.mouse.getPosition()
-  for _, b in ipairs(L.buttons) do
-    local hot = gs.desktop and b.enabled and inside(b, mx, my)
+  for i, b in ipairs(L.buttons) do
+    local selected = navIndex == i
+    local hot = selected or (gs.desktop and b.enabled and inside(b, mx, my))
     love.graphics.setColor(hot and 0.3 or 0.15, hot and 0.3 or 0.15, hot and 0.38 or 0.18, 0.92)
     love.graphics.rectangle("fill", b.x, b.y, b.w, b.h, 10, 10)
     love.graphics.setColor(1, 1, 1, b.enabled and (hot and 1 or 0.6) or 0.2)

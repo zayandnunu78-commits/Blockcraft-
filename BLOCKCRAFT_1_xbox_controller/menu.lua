@@ -17,6 +17,8 @@ local M = {}
 local fonts = {}
 local logoImage
 local active -- the slider being dragged
+local keyboardFocus = {menu = 1, paused = 1, settings = 1, mods = 1}
+local localWorldFocus = 1
 
 local function clamp(v, a, b) return math.max(a, math.min(b, v)) end
 
@@ -142,6 +144,71 @@ local function items(screen)
   return list
 end
 
+local function localWorldItems()
+  local w, h = love.graphics.getDimensions()
+  local bw, bh, gap = math.min(420, w - 40), 56, 14
+  local x, y = (w - bw) / 2, h * 0.30
+  local list = {}
+  for slot = 1, 3 do
+    local info = save.info(slot)
+    local label = info.state == "saved" and ("World " .. slot .. " - Continue")
+        or (info.state == "damaged" and ("World " .. slot .. " - Damaged (overwrite)")
+            or ("World " .. slot .. " - Create"))
+    list[#list + 1] = {kind = "world", slot = slot, label = label,
+                       x = x, y = y, w = bw, h = bh}
+    y = y + bh + gap
+  end
+  list[#list + 1] = {kind = "back", label = "Back", x = 20, y = h - 54, w = 120, h = 40}
+  return list
+end
+
+local function openWorldSlot(slot)
+  local info = save.info(slot)
+  if info.state == "saved" then
+    local ok, err = save.loadSlot(slot)
+    if ok then gs.set("playing") else save.message(err, false) end
+  else
+    worldgen.generate()
+    player.spawn(); hotbar.load(); health.reset()
+    save.attach(slot)
+    save.saveNow(false)
+    gs.set("playing")
+  end
+end
+
+local function moveFocus(list, index, key)
+  if #list < 2 then return index end
+  local current = list[index]
+  local cx, cy = current.x + current.w / 2, current.y + current.h / 2
+  local best, bestScore
+  local function scoreFor(item, wrap)
+    local dx = item.x + item.w / 2 - cx
+    local dy = item.y + item.h / 2 - cy
+    local primary, secondary
+    if key == "left" then primary, secondary = -dx, dy
+    elseif key == "right" then primary, secondary = dx, dy
+    elseif key == "up" then primary, secondary = -dy, dx
+    else primary, secondary = dy, dx end
+    if wrap then primary = -primary end
+    if primary <= 0.5 then return nil end
+    return primary + math.abs(secondary) * 1.5
+  end
+  for i, item in ipairs(list) do
+    if i ~= index then
+      local score = scoreFor(item, false)
+      if score and (not bestScore or score < bestScore) then best, bestScore = i, score end
+    end
+  end
+  if best then return best end
+  for i, item in ipairs(list) do
+    if i ~= index then
+      local score = scoreFor(item, true)
+      if score and (not bestScore or score < bestScore) then best, bestScore = i, score end
+    end
+  end
+  return best or index
+end
+
 local function setSlider(it, px)
   local t = clamp((px - it.x) / it.w, 0, 1)
   local v = it.min + t * (it.max - it.min)
@@ -155,39 +222,25 @@ function M.pressed(px, py)
   if gs.current == "multiplayer" or gs.current == "worlds" then
     return mpmenu.pressed(px, py)
   elseif gs.current == "localworlds" then
-    local w, h = love.graphics.getDimensions()
-    local bw, bh, gap = math.min(420, w - 40), 56, 14
-    local x, y = (w - bw) / 2, h * 0.30
-    for slot = 1, 3 do
-      if px >= x and px <= x + bw and py >= y and py <= y + bh then
-        local info = save.info(slot)
-        if info.state == "saved" then
-          local ok, err = save.loadSlot(slot)
-          if ok then gs.set("playing") else save.message(err, false) end
-        else
-          worldgen.generate()
-          player.spawn(); hotbar.load(); health.reset()
-          save.attach(slot)
-          -- Persist the new world immediately; waiting for the 30-second
-          -- autosave made a quick leave appear to lose the world.
-          save.saveNow(false)
-          gs.set("playing")
-        end
+    for i, it in ipairs(localWorldItems()) do
+      if inside(it, px, py) then
+        localWorldFocus = i
+        if it.kind == "world" then openWorldSlot(it.slot) else gs.set("menu") end
         return
       end
-      y = y + bh + gap
     end
-    if px >= 20 and px <= 160 and py >= h - 70 then gs.set("menu") end
     return
   end
-  for _, it in ipairs(items(gs.current)) do
+  for i, it in ipairs(items(gs.current)) do
     if it.kind == "button" then
       if inside(it, px, py) then
+        keyboardFocus[gs.current] = i
         it.fn()
         return
       end
     elseif px >= it.x - 14 and px <= it.x + it.w + 14
         and py >= it.y - 14 and py <= it.y + it.h + 14 then
+      keyboardFocus[gs.current] = i
       active = it
       setSlider(it, px)
       return
@@ -208,6 +261,57 @@ function M.released()
   end
 end
 
+function M.keypressed(key)
+  local screen = gs.current
+  if screen == "localworlds" then
+    local list = localWorldItems()
+    localWorldFocus = math.max(1, math.min(localWorldFocus, #list))
+    if key == "escape" or key == "backspace" then
+      gs.set("menu")
+      return true
+    elseif key == "up" or key == "down" or key == "left" or key == "right" then
+      localWorldFocus = moveFocus(list, localWorldFocus, key)
+      return true
+    elseif key == "return" or key == "kpenter" or key == "space" then
+      local it = list[localWorldFocus]
+      if it.kind == "world" then openWorldSlot(it.slot) else gs.set("menu") end
+      return true
+    end
+    return false
+  end
+
+  if screen ~= "menu" and screen ~= "paused" and screen ~= "settings" and screen ~= "mods" then
+    return false
+  end
+  if key == "escape" or key == "backspace" then
+    if screen == "paused" then gs.set("playing")
+    elseif screen == "settings" then M.back()
+    elseif screen == "mods" then gs.set("settings") end
+    return true
+  end
+
+  local list = items(screen)
+  local index = math.max(1, math.min(keyboardFocus[screen] or 1, #list))
+  keyboardFocus[screen] = index
+  if key == "up" or key == "down" or key == "left" or key == "right" then
+    local it = list[index]
+    if (key == "left" or key == "right") and it.kind == "slider" then
+      local amount = key == "right" and it.step or -it.step
+      settings[it.key] = clamp(settings[it.key] + amount, it.min, it.max)
+      if it.key == "fov" then settings.apply() end
+      settings.save()
+    else
+      keyboardFocus[screen] = moveFocus(list, index, key)
+    end
+    return true
+  elseif key == "return" or key == "kpenter" or key == "space" then
+    local it = list[index]
+    if it and it.kind == "button" then it.fn() end
+    return true
+  end
+  return false
+end
+
 function M.draw(screen)
   if screen == "multiplayer" or screen == "worlds" then return mpmenu.draw() end
   if screen == "localworlds" then
@@ -217,19 +321,29 @@ function M.draw(screen)
     love.graphics.printf("NORMAL WORLDS", 0, h * 0.09, w, "center")
     local bw, bh, gap = math.min(420, w - 40), 56, 14
     local x, y = (w - bw) / 2, h * 0.30
-    for slot = 1, 3 do
-      local info = save.info(slot)
-      local label = info.state == "saved" and ("World " .. slot .. " - Continue") or ("World " .. slot .. " - Create")
-      if info.state == "damaged" then label = "World " .. slot .. " - Damaged (overwrite)" end
-      love.graphics.setColor(0.12, 0.18, 0.22, 0.95); love.graphics.rectangle("fill", x, y, bw, bh, 9, 9)
-      love.graphics.setColor(1,1,1,1); love.graphics.rectangle("line", x, y, bw, bh, 9, 9)
-      love.graphics.setFont(font(20)); love.graphics.printf(label, x, y + 16, bw, "center")
-      y = y + bh + gap
+    for i, it in ipairs(localWorldItems()) do
+      if it.kind == "world" then
+        local selected = localWorldFocus == i
+        love.graphics.setColor(selected and 0.18 or 0.12, selected and 0.32 or 0.18,
+                               selected and 0.42 or 0.22, 0.98)
+        love.graphics.rectangle("fill", it.x, it.y, it.w, it.h, 9, 9)
+        love.graphics.setColor(1, 1, 1, selected and 1 or 0.7)
+        love.graphics.setLineWidth(selected and 3 or 1)
+        love.graphics.rectangle("line", it.x, it.y, it.w, it.h, 9, 9)
+        love.graphics.setFont(font(20)); love.graphics.printf(it.label, it.x, it.y + 16, it.w, "center")
+      else
+        local selected = localWorldFocus == i
+        love.graphics.setColor(selected and 0.18 or 0.15, selected and 0.32 or 0.18,
+                               selected and 0.42 or 0.22, 0.98)
+        love.graphics.rectangle("fill", it.x, it.y, it.w, it.h, 7, 7)
+        love.graphics.setColor(1, 1, 1, selected and 1 or 0.8)
+        love.graphics.setLineWidth(selected and 3 or 1)
+        love.graphics.rectangle("line", it.x, it.y, it.w, it.h, 7, 7)
+        love.graphics.setFont(font(16)); love.graphics.printf(it.label, it.x, it.y + 10, it.w, "center")
+      end
     end
     love.graphics.setFont(font(16)); love.graphics.setColor(1,1,1,0.85)
     love.graphics.printf("Saved locally on this device — no internet required", 10, h - 88, w - 20, "center")
-    love.graphics.setColor(0.15,0.18,0.22,0.95); love.graphics.rectangle("fill", 20, h - 54, 120, 40, 7, 7)
-    love.graphics.setColor(1,1,1,1); love.graphics.printf("Back", 20, h - 44, 120, "center")
     return
   end
   local w, h = love.graphics.getDimensions()
@@ -268,9 +382,9 @@ function M.draw(screen)
   end
 
   local mx, my = love.mouse.getPosition()
-  for _, it in ipairs(items(screen)) do
+  for i, it in ipairs(items(screen)) do
     if it.kind == "button" then
-      local hot = gs.desktop and inside(it, mx, my)
+      local hot = keyboardFocus[screen] == i or (gs.desktop and inside(it, mx, my))
       love.graphics.setColor(hot and 0.3 or 0.15, hot and 0.3 or 0.15,
                              hot and 0.38 or 0.18, 0.92)
       love.graphics.rectangle("fill", it.x, it.y, it.w, it.h, 10, 10)
@@ -304,9 +418,10 @@ function M.draw(screen)
   if screen == "menu" then
     love.graphics.setFont(font(14))
     love.graphics.setColor(1, 1, 1, 0.7)
-    local hint = gs.desktop
-      and "WASD move  |  Mouse look  |  Click break/place  |  1-9 hotbar  |  Esc pause"
-      or "Left side: move  |  Right side: look  |  Tap: break/place"
+    local hint = gs.xbox
+      and "D-pad: navigate  |  A: select  |  B: back  |  Left stick: move  |  Right stick: look"
+      or (gs.desktop and "WASD move  |  Mouse look  |  Click break/place  |  1-9 hotbar  |  Esc pause"
+          or "Left side: move  |  Right side: look  |  Tap: break/place")
     love.graphics.printf(hint, 0, h - 28, w, "center")
   end
   love.graphics.setColor(1, 1, 1, 1)

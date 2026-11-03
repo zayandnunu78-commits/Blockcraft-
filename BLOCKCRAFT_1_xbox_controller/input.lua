@@ -20,7 +20,7 @@ local function clamp(v, a, b) return math.max(a, math.min(b, v)) end
 
 function I.init()
   local os_ = love.system.getOS()
-  desktop = (os_ ~= "iOS" and os_ ~= "Android")
+  desktop = (os_ ~= "iOS" and os_ ~= "Android" and os_ ~= "UWP")
 end
 
 function I.layout()

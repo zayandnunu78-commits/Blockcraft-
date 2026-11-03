@@ -399,6 +399,9 @@ function love.keypressed(key)
     if key == "escape" then gameState.set("paused")
     elseif session.keypressed(key) then -- emote keys Z X C V B (online)
     else input.keypressed(key) end
+  elseif state == "menu" or state == "paused" or state == "localworlds"
+      or state == "settings" or state == "mods" then
+    menu.keypressed(key)
   elseif key == "escape" then
     if state == "paused" then gameState.set("playing")
     elseif state == "settings" then menu.back()

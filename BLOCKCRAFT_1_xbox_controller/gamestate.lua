@@ -10,7 +10,8 @@
 local S = {current = "menu", settingsFrom = "menu", onlineSession = false}
 
 local os_ = love.system.getOS()
-S.desktop = (os_ ~= "iOS" and os_ ~= "Android")
+S.xbox = (os_ == "UWP")
+S.desktop = (os_ ~= "iOS" and os_ ~= "Android" and not S.xbox)
 
 -- Always change state through this function so the mouse stays in sync.
 function S.set(new)
@@ -21,7 +22,7 @@ function S.set(new)
   end
   S.current = new
   -- Mouse look is locked only while playing; every menu gets a free cursor.
-  -- (Phones have no mouse cursor, so this only matters on desktop.)
+  -- UWP/Xbox uses gamepad look and must not enter the desktop mouse-lock path.
   if S.desktop then love.mouse.setRelativeMode(new == "playing") end
   return true
 end

@@ -6,6 +6,8 @@ This directory is the application layer around the bundled `love-xbox-uwp-main` 
 
 This is an Xbox UWP host scaffold with a Windows GitHub Actions build and signing workflow. It has not yet passed an end-to-end launch test on Xbox One Developer Mode; a successful Windows build or signature check alone does not establish Xbox compatibility.
 
+The game source now recognizes LÖVE's `UWP` platform identifier instead of treating it as desktop Windows, and adds D-pad focus plus A/B navigation to the title, local-world, settings, pause, and multiplayer menus. Gameplay bindings are listed in `BLOCKCRAFT_1_xbox_controller/xbox_controller.lua` (sticks, face buttons, shoulders, triggers, Back/Start, and D-pad). This is source-level support only: it still needs testing on an Xbox One, including text entry and actual controller events.
+
 The scaffold contains:
 
 - `app/main.cpp`: WinRT host that launches the fused `blockcraft.love` payload through `SDL_WinRTRunApp` and `SDL_main`.
@@ -57,6 +59,8 @@ cmake --build --preset uwp-relwithdebinfo
 The generated Visual Studio package must contain SDL2, ANGLE, all six LÖVE vcpkg runtime DLLs, and its declared Microsoft.VCLibs framework dependency. The GitHub workflow checks these files and includes the VCLibs `.appx` in the signed install bundle. Install/trust the included development certificate and install the x64 VCLibs framework package before deploying the Blockcraft MSIX to Xbox Device Portal.
 
 ## Minimal test gate
+
+Run the Lua regression tests from `BLOCKCRAFT_1_xbox_controller` with `lua tests/xbox_controller_test.lua`, `lua tests/xbox_platform_test.lua`, and `lua tests/menu_navigation_test.lua`. These headless tests verify source behavior, not LÖVE startup, MSIX activation, or Xbox hardware compatibility.
 
 Do not begin with the full Blockcraft world. First replace the game payload temporarily with a diagnostic LÖVE app that displays the runtime version, draws a rectangle, writes a test save through `love.filesystem`, and reports Xbox controller events. Deploy that package to Xbox One Developer Mode. Only after that passes should the normal Blockcraft payload be packaged.
 
