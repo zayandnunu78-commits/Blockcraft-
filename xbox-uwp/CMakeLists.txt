@@ -24,7 +24,8 @@ set(BLOCKCRAFT_LOVE_BUILD "${BLOCKCRAFT_ENGINE_ROOT}/build/uwp-x64-angle/RelWith
 set(BLOCKCRAFT_VCPKG_RUNTIME_DIR "${CMAKE_CURRENT_LIST_DIR}/../vcpkg/installed/x64-uwp/bin" CACHE PATH
     "Directory containing the x64 UWP vcpkg runtime DLLs")
 set(BLOCKCRAFT_LOVE_RUNTIME_DLL_NAMES
-    OpenAL32.dll freetype.dll ogg.dll theora.dll vorbisfile.dll z.dll)
+    OpenAL32.dll bz2.dll brotlicommon.dll brotlidec.dll fmt.dll freetype.dll
+    libpng16.dll ogg.dll theora.dll vorbis.dll vorbisfile.dll z.dll)
 set(BLOCKCRAFT_LOVE_RUNTIME_DLLS)
 foreach(runtime_dll IN LISTS BLOCKCRAFT_LOVE_RUNTIME_DLL_NAMES)
     list(APPEND BLOCKCRAFT_LOVE_RUNTIME_DLLS "${BLOCKCRAFT_VCPKG_RUNTIME_DIR}/${runtime_dll}")
@@ -89,7 +90,7 @@ add_custom_command(
 add_custom_target(blockcraft_payload ALL DEPENDS "${GAME_ARCHIVE}")
 
 set(PACKAGE_MANIFEST "${CMAKE_CURRENT_BINARY_DIR}/Package.appxmanifest")
-set(BLOCKCRAFT_PACKAGE_VERSION "0.1.0.4" CACHE STRING "MSIX package version")
+set(BLOCKCRAFT_PACKAGE_VERSION "0.1.0.5" CACHE STRING "MSIX package version")
 set(BLOCKCRAFT_PUBLISHER "CN=Blockcraft Development" CACHE STRING "Signing certificate subject")
 configure_file(
     "${CMAKE_CURRENT_LIST_DIR}/Package.appxmanifest.in"

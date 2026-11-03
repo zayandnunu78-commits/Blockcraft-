@@ -39,10 +39,13 @@ and these SDL artifacts:
 The ANGLE x64 UWP bundle must also contain `bin/libEGL.dll`, `bin/libGLESv2.dll`, and
 `bin/d3dcompiler_47.dll`. CMake fails if any runtime file is missing, stages all four
 SDL2/ANGLE DLLs into the MSIX root, and the GitHub Actions build verifies that the
-finished package contains them before signing. The LÖVE engine also dynamically imports
-`OpenAL32.dll`, `freetype.dll`, `ogg.dll`, `theora.dll`, `vorbisfile.dll`, and `z.dll`.
-Those six x64 UWP runtime DLLs must be present in the vcpkg `installed/x64-uwp/bin`
-directory. CMake stages them into the MSIX and fails early if any are absent.
+finished package contains them before signing. The LÖVE engine also imports vcpkg runtime
+DLLs. In addition to `OpenAL32.dll`, `freetype.dll`, `ogg.dll`, `theora.dll`,
+`vorbisfile.dll`, and `z.dll`, their import tables require `bz2.dll`, `brotlidec.dll`,
+`brotlicommon.dll`, `fmt.dll`, `libpng16.dll`, and `vorbis.dll`. These x64 UWP runtime
+DLLs must be present in `installed/x64-uwp/bin`. CMake stages them into the MSIX and
+fails early if any are absent. The 0.1.0.4 MSIX omitted these imports, which can prevent
+Windows from loading the app before its entry point runs.
 
 ## Configure and build
 
