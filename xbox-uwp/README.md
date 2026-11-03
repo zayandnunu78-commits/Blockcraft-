@@ -12,7 +12,7 @@ The scaffold contains:
 - `Package.appxmanifest.in`: package identity, visual assets, and network/code-generation capabilities.
 - `CMakeLists.txt`: x64 WindowsStore host build, fused payload creation, dependency checks, and Visual Studio deployment content.
 - `CMakePresets.json`: Visual Studio 17 2022 x64 UWP presets.
-- `Assets/`: package asset directory. Replace the placeholders with final Blockcraft artwork before distribution.
+- `Assets/`: Xbox app tile, store, and splash-screen logo variants. The original source is preserved at `Assets/source/BlockcraftLogoSource.png`; the game menu uses `BLOCKCRAFT_1_xbox_controller/assets/blockcraft_logo.png`.
 
 ## Windows prerequisites
 

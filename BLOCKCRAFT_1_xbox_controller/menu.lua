@@ -14,11 +14,16 @@ local hotbar = require "hotbar"
 local health = require "health"
 
 local M = {}
-local TITLE = "BLOCKCRAFT 1" -- <-- put your game's name here
 local fonts = {}
+local logoImage
 local active -- the slider being dragged
 
 local function clamp(v, a, b) return math.max(a, math.min(b, v)) end
+
+local function getLogoImage()
+  if not logoImage then logoImage = love.graphics.newImage("assets/blockcraft_logo.png") end
+  return logoImage
+end
 
 local function font(size)
   size = math.floor(size)
@@ -231,12 +236,20 @@ function M.draw(screen)
   love.graphics.setColor(0, 0, 0, screen == "menu" and 0.35 or 0.55)
   love.graphics.rectangle("fill", 0, 0, w, h)
 
-  local titles = {menu = TITLE, paused = "PAUSED", settings = "SETTINGS", mods = "ADD MODS"}
-  love.graphics.setFont(font(clamp(h * 0.12, 28, 64)))
-  love.graphics.setColor(0, 0, 0, 0.6)
-  love.graphics.printf(titles[screen], 3, h * 0.08 + 3, w, "center")
-  love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.printf(titles[screen], 0, h * 0.08, w, "center")
+  if screen == "menu" then
+    local logo = getLogoImage()
+    local size = math.min(w * 0.42, h * 0.32, 360)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(logo, (w - size) / 2, h * 0.025, 0,
+                       size / logo:getWidth(), size / logo:getHeight())
+  else
+    local titles = {paused = "PAUSED", settings = "SETTINGS", mods = "ADD MODS"}
+    love.graphics.setFont(font(clamp(h * 0.12, 28, 64)))
+    love.graphics.setColor(0, 0, 0, 0.6)
+    love.graphics.printf(titles[screen], 3, h * 0.08 + 3, w, "center")
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.printf(titles[screen], 0, h * 0.08, w, "center")
+  end
 
   if screen == "mods" then
     local f = font(16)
