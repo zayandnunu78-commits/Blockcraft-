@@ -167,6 +167,21 @@ jobs:
           $zip = [IO.Compression.ZipFile]::OpenRead($package.FullName)
           try { $entries = @($zip.Entries | ForEach-Object { $_.FullName }) }
           finally { $zip.Dispose() }
+          $zip = [IO.Compression.ZipFile]::OpenRead($package.FullName)
+          try {
+            $manifestEntry = $zip.GetEntry('AppxManifest.xml')
+            if (-not $manifestEntry) { throw 'MSIX is missing AppxManifest.xml.' }
+            $manifestReader = [IO.StreamReader]::new($manifestEntry.Open())
+            try { [xml]$packageManifest = $manifestReader.ReadToEnd() }
+            finally { $manifestReader.Dispose() }
+          } finally { $zip.Dispose() }
+          $app = $packageManifest.Package.Applications.Application
+          if ($app.Executable -ne 'BlockcraftUWP.exe') { throw "Unexpected MSIX executable: $($app.Executable)" }
+          if ($app.EntryPoint -ne 'Windows.PartialTrustApplication') { throw "Unexpected MSIX EntryPoint: $($app.EntryPoint)" }
+          $uap10 = 'http://schemas.microsoft.com/appx/manifest/uap/windows10/10'
+          if ($app.GetAttribute('RuntimeBehavior', $uap10) -ne 'packagedClassicApp') { throw 'MSIX RuntimeBehavior must be packagedClassicApp.' }
+          if ($app.GetAttribute('TrustLevel', $uap10) -ne 'appContainer') { throw 'MSIX TrustLevel must be appContainer.' }
+          Write-Host 'MSIX activation check passed: BlockcraftUWP.exe / Windows.PartialTrustApplication / appContainer'
           $required = @(
             'SDL2.dll','libEGL.dll','libGLESv2.dll','d3dcompiler_47.dll',
             'OpenAL32.dll','freetype.dll','ogg.dll','theora.dll','vorbisfile.dll','z.dll'

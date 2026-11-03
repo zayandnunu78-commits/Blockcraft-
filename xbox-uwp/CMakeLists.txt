@@ -89,7 +89,7 @@ add_custom_command(
 add_custom_target(blockcraft_payload ALL DEPENDS "${GAME_ARCHIVE}")
 
 set(PACKAGE_MANIFEST "${CMAKE_CURRENT_BINARY_DIR}/Package.appxmanifest")
-set(BLOCKCRAFT_PACKAGE_VERSION "0.1.0.3" CACHE STRING "MSIX package version")
+set(BLOCKCRAFT_PACKAGE_VERSION "0.1.0.4" CACHE STRING "MSIX package version")
 set(BLOCKCRAFT_PUBLISHER "CN=Blockcraft Development" CACHE STRING "Signing certificate subject")
 configure_file(
     "${CMAKE_CURRENT_LIST_DIR}/Package.appxmanifest.in"

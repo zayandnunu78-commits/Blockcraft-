@@ -16,6 +16,8 @@ The scaffold contains:
 - `CMakePresets.json`: Visual Studio 17 2022 x64 UWP presets.
 - `Assets/`: Xbox app tile, store, and splash-screen logo variants. The original source is preserved at `Assets/source/BlockcraftLogoSource.png`; the game menu uses `BLOCKCRAFT_1_xbox_controller/assets/blockcraft_logo.png`.
 
+The host is a native executable with `WinMain`, which calls `SDL_WinRTRunApp`; it does not contain a `BlockcraftUWP.App` runtime class. The manifest now selects `Windows.PartialTrustApplication` with `packagedClassicApp`/`appContainer` so activation targets the native executable rather than an absent UWP class. CI checks the generated manifest and executable name. This corrects the activation-model mismatch in the package, but Xbox One launch still must be verified on hardware; a successful Windows build is not proof that this runtime mode is accepted by the console.
+
 ## Windows prerequisites
 
 Install Visual Studio 2022 with UWP development, MSVC v143 x64 tools, Windows SDK 10.0.19041 or newer, CMake 3.24+, PowerShell, Git, and packaging/signing tools. Build an x64 UWP SDL2 installation compatible with the engine fork. Build the LÖVE fork first with LuaJIT and ANGLE, then point `BLOCKCRAFT_LOVE_BUILD` at its `RelWithDebInfo` or `Release` output.
