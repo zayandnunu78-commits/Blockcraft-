@@ -10,7 +10,7 @@ Download that artifact from the completed workflow run. Create a repository rele
 
 ## What the workflow does
 
-The workflow runs on `windows-2022`, prepares MSBuild/MSVC, downloads the SDL2 UWP and ANGLE UWP bundles supplied at dispatch time, bootstraps vcpkg, builds the LÖVE UWP engine, configures the Blockcraft host, builds the host, and uploads the build directories and inventory as an artifact. It intentionally does not sign or claim that the package is ready for Xbox.
+The workflow runs on `windows-2022`, prepares MSBuild/MSVC, downloads the SDL2 UWP and ANGLE UWP bundles supplied at dispatch time, bootstraps vcpkg, builds the LÖVE UWP engine and Blockcraft host, stages the required runtime DLLs, verifies the x64 VCLibs framework package, signs the MSIX, and uploads both diagnostic build outputs and a signed install bundle.
 
 The workflow requires two URLs when you click **Run workflow**:
 
@@ -26,14 +26,14 @@ Those bundles must be built for Windows UWP and must match the engine’s x64 co
 3. Open the repository in Safari and select **Actions**.
 4. Select **Build Blockcraft Xbox UWP**.
 5. Choose **Run workflow**, enter the two dependency bundle URLs, and start the run.
-6. Open the run after it finishes and download `blockcraft-xbox-uwp-windows-build-*`.
+6. Open the run after it finishes and download `blockcraft-xbox-uwp-signed-*` for installation. It contains the signed MSIX, `Microsoft.VCLibs.x64.14.00.appx`, and the development certificate. The Windows build artifact is for diagnostics only.
 
 If the workflow does not appear, the workflow file has not reached the repository’s default branch or Actions are disabled for the repository.
 
 ## What is still required after a successful CI build
 
-The current host scaffold does not yet stage every SDL2, ANGLE, and vcpkg runtime DLL into a finished MSIX. A successful workflow run therefore proves only that the selected native sources configured and compiled in the remote Windows environment. It does not prove Xbox compatibility.
+The workflow stages and checks the SDL2, ANGLE, and six LÖVE vcpkg runtime DLLs imported by `liblove.dll`. It also requires and includes the x64 VCLibs framework package declared by the manifest. A successful workflow run verifies package contents and signing, but it does not prove Xbox compatibility or successful launch on hardware.
 
-The next packaging pass must stage all runtime DLLs, generate/sign the MSIX with a development certificate, install it through Xbox Device Portal, and run the minimal diagnostic LÖVE app before packaging the full Blockcraft game. Keep the PFX private in GitHub Actions secrets; never commit it to the repository.
+Before testing, trust the included development certificate on the Xbox, install the x64 VCLibs framework package, then deploy the Blockcraft MSIX through Xbox Device Portal. For future engine changes, first run a minimal diagnostic LÖVE app that draws, saves through `love.filesystem`, and reports controller events. Keep the PFX private in GitHub Actions secrets; never commit it to the repository.
 
 The workflow is deliberately configured to upload logs even when a build step fails. The first failing step and its complete CMake/MSBuild output should be fixed before attempting Blockcraft runtime testing.

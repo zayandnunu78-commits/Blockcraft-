@@ -4,7 +4,7 @@ This directory is the application layer around the bundled `love-xbox-uwp-main` 
 
 ## Current status
 
-This is an **unbuilt scaffold**. It has not been compiled, signed, installed, or tested on Xbox One Developer Mode. The current Linux sandbox cannot build it because Visual Studio/MSVC, the Windows SDK, CMake, PowerShell, SDL2 UWP libraries, ANGLE/runtime DLLs, and MSIX tooling are unavailable.
+This is an Xbox UWP host scaffold with a Windows GitHub Actions build and signing workflow. It has not yet passed an end-to-end launch test on Xbox One Developer Mode; a successful Windows build or signature check alone does not establish Xbox compatibility.
 
 The scaffold contains:
 
@@ -35,7 +35,10 @@ and these SDL artifacts:
 The ANGLE x64 UWP bundle must also contain `bin/libEGL.dll`, `bin/libGLESv2.dll`, and
 `bin/d3dcompiler_47.dll`. CMake fails if any runtime file is missing, stages all four
 SDL2/ANGLE DLLs into the MSIX root, and the GitHub Actions build verifies that the
-finished package contains them before signing.
+finished package contains them before signing. The LÖVE engine also dynamically imports
+`OpenAL32.dll`, `freetype.dll`, `ogg.dll`, `theora.dll`, `vorbisfile.dll`, and `z.dll`.
+Those six x64 UWP runtime DLLs must be present in the vcpkg `installed/x64-uwp/bin`
+directory. CMake stages them into the MSIX and fails early if any are absent.
 
 ## Configure and build
 
@@ -46,11 +49,12 @@ cd xbox-uwp
 cmake --preset uwp-relwithdebinfo `
   -DBLOCKCRAFT_SDL_ROOT=C:/path/to/sdl2-install `
   -DBLOCKCRAFT_ANGLE_ROOT=C:/path/to/angle-uwp `
+  -DBLOCKCRAFT_VCPKG_RUNTIME_DIR=C:/path/to/vcpkg/installed/x64-uwp/bin `
   -DBLOCKCRAFT_LOVE_BUILD=C:/path/to/love/build/RelWithDebInfo
 cmake --build --preset uwp-relwithdebinfo
 ```
 
-The generated Visual Studio package still needs the complete SDL2, ANGLE, vcpkg runtime DLL set, package signing, and Device Portal installation. Review the generated deployment output before installing.
+The generated Visual Studio package must contain SDL2, ANGLE, all six LÖVE vcpkg runtime DLLs, and its declared Microsoft.VCLibs framework dependency. The GitHub workflow checks these files and includes the VCLibs `.appx` in the signed install bundle. Install/trust the included development certificate and install the x64 VCLibs framework package before deploying the Blockcraft MSIX to Xbox Device Portal.
 
 ## Minimal test gate
 

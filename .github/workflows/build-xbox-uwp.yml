@@ -151,7 +151,8 @@ jobs:
             '-DCMAKE_SYSTEM_VERSION=10.0' `
             -DBLOCKCRAFT_SDL_ROOT="$env:SDL2_ROOT" `
             -DBLOCKCRAFT_ANGLE_ROOT="$env:ANGLE_ROOT" `
-            -DBLOCKCRAFT_LOVE_BUILD="$env:LOVE_ROOT\\build\\uwp-x64-angle\\RelWithDebInfo" `
+            -DBLOCKCRAFT_VCPKG_RUNTIME_DIR="$env:GITHUB_WORKSPACE\vcpkg\installed\x64-uwp\bin" `
+            -DBLOCKCRAFT_LOVE_BUILD="$env:LOVE_ROOT\build\uwp-x64-angle\RelWithDebInfo" `
             -DBLOCKCRAFT_PUBLISHER='${{ inputs.publisher }}'
 
       - name: Build Blockcraft UWP host
@@ -166,10 +167,16 @@ jobs:
           $zip = [IO.Compression.ZipFile]::OpenRead($package.FullName)
           try { $entries = @($zip.Entries | ForEach-Object { $_.FullName }) }
           finally { $zip.Dispose() }
-          $required = @('SDL2.dll','libEGL.dll','libGLESv2.dll','d3dcompiler_47.dll')
+          $required = @(
+            'SDL2.dll','libEGL.dll','libGLESv2.dll','d3dcompiler_47.dll',
+            'OpenAL32.dll','freetype.dll','ogg.dll','theora.dll','vorbisfile.dll','z.dll'
+          )
           $missing = @($required | Where-Object { $_ -notin $entries })
           if ($missing.Count -gt 0) { throw "MSIX is missing runtime DLL(s): $($missing -join ', ')" }
           Write-Host "MSIX runtime DLL check passed: $($required -join ', ')"
+          $dependency = Get-ChildItem -Path $appPackages -Filter 'Microsoft.VCLibs.x64.14.00.appx' -Recurse | Select-Object -First 1
+          if (-not $dependency) { throw 'The MSIX declares Microsoft.VCLibs.140.00 but its x64 framework package was not produced.' }
+          Write-Host "VCLibs dependency package found: $($dependency.FullName)"
 
       - name: Sign MSIX and verify publisher
         shell: pwsh
@@ -256,7 +263,8 @@ jobs:
           $signedPackage = Join-Path $signDir $package.Name
           Copy-Item $package.FullName $signedPackage -Force
           $dependency = Get-ChildItem -Path $appPackages -Filter 'Microsoft.VCLibs.x64.14.00.appx' -Recurse | Select-Object -First 1
-          if ($dependency) { Copy-Item $dependency.FullName (Join-Path $signDir $dependency.Name) -Force }
+          if (-not $dependency) { throw 'The MSIX declares Microsoft.VCLibs.140.00 but its x64 framework package was not found.' }
+          Copy-Item $dependency.FullName (Join-Path $signDir $dependency.Name) -Force
           $verification = [ordered]@{
             package = $package.Name
             architecture = [string]$manifest.Package.Identity.ProcessorArchitecture
